@@ -51,6 +51,7 @@ create table if not exists allocations (
   client_id      uuid not null references clients(id) on delete cascade,
   week_start     date not null,                 -- sempre uma segunda-feira
   hours          numeric(6,2) not null default 0,
+  status         text not null default 'confirmado' check (status in ('confirmado', 'previsto')),
   note           text,
   created_at     timestamptz not null default now(),
   updated_at     timestamptz not null default now(),

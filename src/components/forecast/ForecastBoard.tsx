@@ -3,11 +3,26 @@
 import { Fragment, useEffect, useMemo, useState } from "react";
 import { addWeeks } from "date-fns";
 import { mondayOf, isoDate, shortLabel, weekRange } from "@/lib/weeks";
-import type { TeamMember, Client, Allocation } from "@/lib/forecast-types";
+import type { TeamMember, Client, Allocation, AllocationStatus } from "@/lib/forecast-types";
 import { utilClass } from "@/lib/forecast-types";
 import ManagePanel from "./ManagePanel";
 
 const WEEK_COUNT = 6;
+
+const STATUS_META: Record<AllocationStatus, { label: string; badge: string; pillIdle: string }> = {
+  confirmado: {
+    label: "Confirmado",
+    badge: "bg-verde/10 border-verde/35 text-verde",
+    pillIdle: "border-verde/40 text-verde hover:bg-verde/10",
+  },
+  previsto: {
+    label: "Previsto",
+    badge: "bg-laranja/12 border-laranja/40 text-[#9A6300]",
+    pillIdle: "border-laranja/45 text-[#9A6300] hover:bg-laranja/10",
+  },
+};
+
+type CellValue = { hours: number; status: AllocationStatus };
 
 export default function ForecastBoard() {
   const [teamMembers, setTeamMembers] = useState<TeamMember[]>([]);
@@ -21,6 +36,8 @@ export default function ForecastBoard() {
   const [extraRows, setExtraRows] = useState<Record<string, Set<string>>>({});
   const [savingKeys, setSavingKeys] = useState<Set<string>>(new Set());
   const [pickerFor, setPickerFor] = useState<string | null>(null);
+  const [editingKey, setEditingKey] = useState<string | null>(null);
+  const [draftHours, setDraftHours] = useState("");
 
   const weeks = useMemo(() => weekRange(anchor, WEEK_COUNT), [anchor]);
   const weekIsos = useMemo(() => weeks.map(isoDate), [weeks]);
@@ -68,11 +85,11 @@ export default function ForecastBoard() {
   }, [weekIsos]);
 
   const allocByPair = useMemo(() => {
-    const map = new Map<string, Map<string, number>>();
+    const map = new Map<string, Map<string, CellValue>>();
     for (const a of allocations) {
       const key = `${a.teamMemberId}|${a.clientId}`;
       if (!map.has(key)) map.set(key, new Map());
-      map.get(key)!.set(a.weekStart, a.hours);
+      map.get(key)!.set(a.weekStart, { hours: a.hours, status: a.status });
     }
     return map;
   }, [allocations]);
@@ -83,8 +100,13 @@ export default function ForecastBoard() {
     return m;
   }, [clients]);
 
-  function getHours(memberId: string, clientId: string, weekIso: string): number {
-    return allocByPair.get(`${memberId}|${clientId}`)?.get(weekIso) ?? 0;
+  function getCell(memberId: string, clientId: string, weekIso: string): CellValue {
+    return (
+      allocByPair.get(`${memberId}|${clientId}`)?.get(weekIso) ?? {
+        hours: 0,
+        status: "confirmado",
+      }
+    );
   }
 
   function rowsForMember(memberId: string): string[] {
@@ -103,7 +125,13 @@ export default function ForecastBoard() {
       });
   }
 
-  async function saveCell(memberId: string, clientId: string, weekIso: string, hours: number) {
+  async function saveCell(
+    memberId: string,
+    clientId: string,
+    weekIso: string,
+    hours: number,
+    status: AllocationStatus
+  ) {
     const key = `${memberId}|${clientId}|${weekIso}`;
     setSavingKeys((s) => new Set(s).add(key));
     setError(null);
@@ -111,7 +139,7 @@ export default function ForecastBoard() {
       const res = await fetch("/api/allocations", {
         method: "PUT",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ teamMemberId: memberId, clientId, weekStart: weekIso, hours }),
+        body: JSON.stringify({ teamMemberId: memberId, clientId, weekStart: weekIso, hours, status }),
       });
       const data = await res.json();
       if (!res.ok) throw new Error(data.error || "Erro ao salvar horas.");
@@ -126,6 +154,7 @@ export default function ForecastBoard() {
             clientId,
             weekStart: weekIso,
             hours,
+            status,
           });
         }
         return filtered;
@@ -139,6 +168,25 @@ export default function ForecastBoard() {
         return n;
       });
     }
+  }
+
+  function openEditor(memberId: string, clientId: string, weekIso: string) {
+    const key = `${memberId}|${clientId}|${weekIso}`;
+    const current = getCell(memberId, clientId, weekIso);
+    setDraftHours(current.hours > 0 ? String(current.hours) : "");
+    setEditingKey(key);
+  }
+
+  function closeEditor() {
+    setEditingKey(null);
+    setDraftHours("");
+  }
+
+  function commit(memberId: string, clientId: string, weekIso: string, status: AllocationStatus) {
+    const raw = draftHours.trim().replace(",", ".");
+    const parsed = raw === "" ? 0 : Math.max(0, Number(raw));
+    saveCell(memberId, clientId, weekIso, Number.isFinite(parsed) ? parsed : 0, status);
+    closeEditor();
   }
 
   function addRow(memberId: string, clientId: string) {
@@ -160,7 +208,7 @@ export default function ForecastBoard() {
     );
     if (!ok) return;
 
-    await Promise.all(weekIsos.map((w) => saveCell(memberId, clientId, w, 0)));
+    await Promise.all(weekIsos.map((w) => saveCell(memberId, clientId, w, 0, "confirmado")));
     setExtraRows((prev) => {
       const next = { ...prev };
       const set = new Set(next[memberId] ?? []);
@@ -177,9 +225,10 @@ export default function ForecastBoard() {
       <div className="flex items-start justify-between gap-4 flex-wrap mb-6">
         <div>
           <h1 className="text-[26px] leading-tight text-ink mb-1">Forecast da operação</h1>
-          <p className="text-sm text-ink-secondary max-w-[60ch]">
-            Aloque cada pessoa da equipe por cliente, semana a semana. As
-            alterações são salvas automaticamente ao sair do campo.
+          <p className="text-sm text-ink-secondary max-w-[62ch]">
+            Aloque cada pessoa por cliente, semana a semana. Clique numa célula
+            para lançar horas e marcar se a alocação já está confirmada ou é
+            apenas prevista.
           </p>
         </div>
         <button
@@ -231,14 +280,30 @@ export default function ForecastBoard() {
             {shortLabel(weeks[0])} &ndash; {shortLabel(weeks[weeks.length - 1])}
           </span>
         </div>
-        <label className="flex items-center gap-2 text-sm text-ink-secondary">
-          <input
-            type="checkbox"
-            checked={showInactive}
-            onChange={(e) => setShowInactive(e.target.checked)}
-          />
-          Mostrar consultores arquivados
-        </label>
+        <div className="flex items-center gap-4 flex-wrap">
+          <div className="flex items-center gap-3 text-xs text-ink-secondary">
+            <span className="flex items-center gap-1.5">
+              <span className="w-2.5 h-2.5 rounded-sm bg-verde" />
+              Confirmado
+            </span>
+            <span className="flex items-center gap-1.5">
+              <span className="w-2.5 h-2.5 rounded-sm bg-laranja" />
+              Previsto
+            </span>
+            <span className="flex items-center gap-1.5">
+              <span className="w-2.5 h-2.5 rounded-sm border border-dashed border-border-strong" />
+              Livre
+            </span>
+          </div>
+          <label className="flex items-center gap-2 text-sm text-ink-secondary">
+            <input
+              type="checkbox"
+              checked={showInactive}
+              onChange={(e) => setShowInactive(e.target.checked)}
+            />
+            Mostrar consultores arquivados
+          </label>
+        </div>
       </div>
 
       {error && (
@@ -248,7 +313,7 @@ export default function ForecastBoard() {
       )}
 
       <div className="bg-surface border border-border rounded-xl shadow-[0_1px_2px_rgba(48,48,48,0.06),0_8px_24px_-12px_rgba(48,48,48,0.18)] overflow-x-auto">
-        <table className="w-full text-sm border-collapse min-w-[720px]">
+        <table className="w-full text-sm border-collapse min-w-[780px]">
           <thead>
             <tr className="border-b border-border">
               <th className="text-left font-semibold text-[10.5px] uppercase tracking-wide text-ink-faint px-4 py-3 min-w-[220px]">
@@ -257,7 +322,7 @@ export default function ForecastBoard() {
               {weeks.map((w) => (
                 <th
                   key={isoDate(w)}
-                  className="text-right font-semibold text-[10.5px] uppercase tracking-wide text-ink-faint px-3 py-3 mono"
+                  className="text-right font-semibold text-[10.5px] uppercase tracking-wide text-ink-faint px-2 py-3 mono"
                 >
                   {shortLabel(w)}
                 </th>
@@ -280,7 +345,7 @@ export default function ForecastBoard() {
             {visibleMembers.map((member) => {
               const rowClientIds = rowsForMember(member.id);
               const weeklyTotals = weekIsos.map((w) =>
-                rowClientIds.reduce((s, cid) => s + getHours(member.id, cid, w), 0)
+                rowClientIds.reduce((s, cid) => s + getCell(member.id, cid, w).hours, 0)
               );
               const grandTotal = weeklyTotals.reduce((s, v) => s + v, 0);
               const availableClients = clients.filter(
@@ -305,7 +370,7 @@ export default function ForecastBoard() {
                       const pct = member.weeklyCapacity > 0 ? (total / member.weeklyCapacity) * 100 : 0;
                       const cls = utilClass(pct);
                       return (
-                        <td key={weekIsos[i]} className="px-3 py-2.5 text-right">
+                        <td key={weekIsos[i]} className="px-2 py-2.5 text-right">
                           <span
                             className={`inline-block px-1.5 py-0.5 rounded-full text-[11px] font-semibold mono ${
                               cls === "good"
@@ -330,10 +395,10 @@ export default function ForecastBoard() {
 
                   {rowClientIds.map((cid) => {
                     const client = clientById.get(cid);
-                    const rowTotal = weekIsos.reduce((s, w) => s + getHours(member.id, cid, w), 0);
+                    const rowTotal = weekIsos.reduce((s, w) => s + getCell(member.id, cid, w).hours, 0);
                     return (
                       <tr key={cid} className="border-t border-border">
-                        <td className="pl-8 pr-4 py-2 text-ink-secondary">
+                        <td className="pl-8 pr-4 py-2 text-ink-secondary align-top">
                           <span className="inline-flex items-center gap-2">
                             <span
                               className="w-2 h-2 rounded-sm shrink-0"
@@ -352,25 +417,71 @@ export default function ForecastBoard() {
                           </span>
                         </td>
                         {weekIsos.map((w) => {
-                          const value = getHours(member.id, cid, w);
+                          const cell = getCell(member.id, cid, w);
                           const key = `${member.id}|${cid}|${w}`;
                           const isSaving = savingKeys.has(key);
+                          const isEditing = editingKey === key;
+                          const meta = STATUS_META[cell.status];
+
                           return (
-                            <td key={w} className="px-3 py-1.5 text-right">
-                              <input
-                                key={`${key}-${value}`}
-                                type="number"
-                                min={0}
-                                step={0.25}
-                                defaultValue={value > 0 ? value : ""}
-                                onBlur={(e) => {
-                                  const raw = e.target.value.trim();
-                                  const parsed = raw === "" ? 0 : Math.max(0, Number(raw.replace(",", ".")));
-                                  if (parsed !== value) saveCell(member.id, cid, w, parsed);
-                                }}
-                                disabled={isSaving}
-                                className="w-16 text-right border border-transparent hover:border-border-strong focus:border-verde rounded-md px-1.5 py-1 text-sm mono bg-transparent focus:bg-white outline-none disabled:opacity-50"
-                              />
+                            <td key={w} className="px-1.5 py-1.5 text-right align-top">
+                              {isEditing ? (
+                                <div className="flex flex-col items-stretch gap-1 w-[78px] ml-auto">
+                                  <input
+                                    type="number"
+                                    min={0}
+                                    step={0.25}
+                                    autoFocus
+                                    value={draftHours}
+                                    onChange={(e) => setDraftHours(e.target.value)}
+                                    onKeyDown={(e) => {
+                                      if (e.key === "Enter") commit(member.id, cid, w, cell.status);
+                                      if (e.key === "Escape") closeEditor();
+                                    }}
+                                    placeholder="0"
+                                    className="w-full text-right border border-verde rounded px-1.5 py-1 text-sm mono outline-none bg-white"
+                                  />
+                                  <div className="flex gap-1">
+                                    <button
+                                      type="button"
+                                      onClick={() => commit(member.id, cid, w, "confirmado")}
+                                      className={`flex-1 text-[9.5px] font-semibold rounded border px-1 py-0.5 transition-colors ${STATUS_META.confirmado.pillIdle}`}
+                                      title="Salvar como confirmado"
+                                    >
+                                      Conf.
+                                    </button>
+                                    <button
+                                      type="button"
+                                      onClick={() => commit(member.id, cid, w, "previsto")}
+                                      className={`flex-1 text-[9.5px] font-semibold rounded border px-1 py-0.5 transition-colors ${STATUS_META.previsto.pillIdle}`}
+                                      title="Salvar como previsto"
+                                    >
+                                      Prev.
+                                    </button>
+                                  </div>
+                                  <button
+                                    type="button"
+                                    onClick={closeEditor}
+                                    className="text-[9.5px] text-ink-faint hover:text-ink-secondary"
+                                  >
+                                    cancelar
+                                  </button>
+                                </div>
+                              ) : (
+                                <button
+                                  type="button"
+                                  onClick={() => openEditor(member.id, cid, w)}
+                                  disabled={isSaving}
+                                  title={cell.hours > 0 ? meta.label : "Clique para alocar horas"}
+                                  className={`ml-auto min-w-[54px] min-h-[26px] flex items-center justify-end rounded-md border px-2 py-1 text-sm mono font-semibold transition-colors disabled:opacity-50 ${
+                                    cell.hours > 0
+                                      ? meta.badge
+                                      : "border-dashed border-border-strong/70 hover:border-verde/50"
+                                  }`}
+                                >
+                                  {cell.hours > 0 ? `${cell.hours}h` : ""}
+                                </button>
+                              )}
                             </td>
                           );
                         })}

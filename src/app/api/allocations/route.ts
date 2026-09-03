@@ -24,7 +24,8 @@ export async function GET(request: Request) {
       team_member_id as "teamMemberId",
       client_id as "clientId",
       to_char(week_start, 'YYYY-MM-DD') as "weekStart",
-      hours::float as hours
+      hours::float as hours,
+      status
     from allocations
     where week_start between ${startParsed.data} and ${endParsed.data}
   `;
@@ -36,6 +37,7 @@ const putSchema = z.object({
   clientId: z.string().uuid(),
   weekStart: dateSchema,
   hours: z.number().min(0).max(168),
+  status: z.enum(["confirmado", "previsto"]).default("confirmado"),
 });
 
 export async function PUT(request: Request) {
@@ -53,7 +55,7 @@ export async function PUT(request: Request) {
       { status: 400 }
     );
   }
-  const { teamMemberId, clientId, weekStart, hours } = parsed.data;
+  const { teamMemberId, clientId, weekStart, hours, status } = parsed.data;
 
   if (hours <= 0) {
     await sql`
@@ -66,16 +68,17 @@ export async function PUT(request: Request) {
   }
 
   const rows = await sql`
-    insert into allocations (team_member_id, client_id, week_start, hours)
-    values (${teamMemberId}, ${clientId}, ${weekStart}, ${hours})
+    insert into allocations (team_member_id, client_id, week_start, hours, status)
+    values (${teamMemberId}, ${clientId}, ${weekStart}, ${hours}, ${status})
     on conflict (team_member_id, client_id, week_start)
-    do update set hours = excluded.hours, updated_at = now()
+    do update set hours = excluded.hours, status = excluded.status, updated_at = now()
     returning
       id,
       team_member_id as "teamMemberId",
       client_id as "clientId",
       to_char(week_start, 'YYYY-MM-DD') as "weekStart",
-      hours::float as hours
+      hours::float as hours,
+      status
   `;
   return NextResponse.json(rows[0]);
 }

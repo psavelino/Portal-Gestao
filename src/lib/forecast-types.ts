@@ -15,12 +15,15 @@ export type Client = {
   sortOrder: number;
 };
 
+export type AllocationStatus = "confirmado" | "previsto";
+
 export type Allocation = {
   id: string;
   teamMemberId: string;
   clientId: string;
   weekStart: string; // YYYY-MM-DD
   hours: number;
+  status: AllocationStatus;
 };
 
 export function cellKey(teamMemberId: string, clientId: string, weekStart: string) {
