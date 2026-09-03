@@ -3,9 +3,10 @@
 import { Fragment, useEffect, useMemo, useState } from "react";
 import { addWeeks } from "date-fns";
 import { mondayOf, isoDate, shortLabel, weekRange } from "@/lib/weeks";
-import type { TeamMember, Client, Allocation, AllocationStatus } from "@/lib/forecast-types";
-import { utilClass } from "@/lib/forecast-types";
+import type { TeamMember, Client, Project, Allocation, AllocationStatus } from "@/lib/forecast-types";
+import { utilClass, CONTRACT_TYPE_META } from "@/lib/forecast-types";
 import ManagePanel from "./ManagePanel";
+import ProjectBalancePanel from "./ProjectBalancePanel";
 
 const WEEK_COUNT = 6;
 
@@ -27,11 +28,13 @@ type CellValue = { hours: number; status: AllocationStatus };
 export default function ForecastBoard() {
   const [teamMembers, setTeamMembers] = useState<TeamMember[]>([]);
   const [clients, setClients] = useState<Client[]>([]);
+  const [projects, setProjects] = useState<Project[]>([]);
   const [allocations, setAllocations] = useState<Allocation[]>([]);
   const [anchor, setAnchor] = useState<Date>(() => mondayOf());
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [manageOpen, setManageOpen] = useState(false);
+  const [balanceOpen, setBalanceOpen] = useState(false);
   const [showInactive, setShowInactive] = useState(false);
   const [extraRows, setExtraRows] = useState<Record<string, Set<string>>>({});
   const [savingKeys, setSavingKeys] = useState<Set<string>>(new Set());
@@ -45,15 +48,17 @@ export default function ForecastBoard() {
   useEffect(() => {
     (async () => {
       try {
-        const [tmRes, clRes] = await Promise.all([
+        const [tmRes, clRes, prRes] = await Promise.all([
           fetch("/api/team-members"),
           fetch("/api/clients"),
+          fetch("/api/projects"),
         ]);
-        if (!tmRes.ok || !clRes.ok) throw new Error();
+        if (!tmRes.ok || !clRes.ok || !prRes.ok) throw new Error();
         setTeamMembers(await tmRes.json());
         setClients(await clRes.json());
+        setProjects(await prRes.json());
       } catch {
-        setError("Não foi possível carregar a equipe e os clientes.");
+        setError("Não foi possível carregar equipe, clientes e projetos.");
       }
     })();
   }, []);
@@ -87,7 +92,7 @@ export default function ForecastBoard() {
   const allocByPair = useMemo(() => {
     const map = new Map<string, Map<string, CellValue>>();
     for (const a of allocations) {
-      const key = `${a.teamMemberId}|${a.clientId}`;
+      const key = `${a.teamMemberId}|${a.projectId}`;
       if (!map.has(key)) map.set(key, new Map());
       map.get(key)!.set(a.weekStart, { hours: a.hours, status: a.status });
     }
@@ -100,9 +105,15 @@ export default function ForecastBoard() {
     return m;
   }, [clients]);
 
-  function getCell(memberId: string, clientId: string, weekIso: string): CellValue {
+  const projectById = useMemo(() => {
+    const m = new Map<string, Project>();
+    for (const p of projects) m.set(p.id, p);
+    return m;
+  }, [projects]);
+
+  function getCell(memberId: string, projectId: string, weekIso: string): CellValue {
     return (
-      allocByPair.get(`${memberId}|${clientId}`)?.get(weekIso) ?? {
+      allocByPair.get(`${memberId}|${projectId}`)?.get(weekIso) ?? {
         hours: 0,
         status: "confirmado",
       }
@@ -112,46 +123,52 @@ export default function ForecastBoard() {
   function rowsForMember(memberId: string): string[] {
     const set = new Set<string>();
     for (const key of allocByPair.keys()) {
-      const [mid, cid] = key.split("|");
-      if (mid === memberId) set.add(cid);
+      const [mid, pid] = key.split("|");
+      if (mid === memberId) set.add(pid);
     }
-    for (const cid of extraRows[memberId] ?? []) set.add(cid);
+    for (const pid of extraRows[memberId] ?? []) set.add(pid);
     return Array.from(set)
-      .filter((cid) => clientById.has(cid))
+      .filter((pid) => projectById.has(pid))
       .sort((a, b) => {
-        const ca = clientById.get(a)!;
-        const cb = clientById.get(b)!;
-        return ca.sortOrder - cb.sortOrder || ca.name.localeCompare(cb.name);
+        const pa = projectById.get(a)!;
+        const pb = projectById.get(b)!;
+        const ca = clientById.get(pa.clientId);
+        const cb = clientById.get(pb.clientId);
+        return (
+          (ca?.sortOrder ?? 0) - (cb?.sortOrder ?? 0) ||
+          (ca?.name ?? "").localeCompare(cb?.name ?? "") ||
+          pa.name.localeCompare(pb.name)
+        );
       });
   }
 
   async function saveCell(
     memberId: string,
-    clientId: string,
+    projectId: string,
     weekIso: string,
     hours: number,
     status: AllocationStatus
   ) {
-    const key = `${memberId}|${clientId}|${weekIso}`;
+    const key = `${memberId}|${projectId}|${weekIso}`;
     setSavingKeys((s) => new Set(s).add(key));
     setError(null);
     try {
       const res = await fetch("/api/allocations", {
         method: "PUT",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ teamMemberId: memberId, clientId, weekStart: weekIso, hours, status }),
+        body: JSON.stringify({ teamMemberId: memberId, projectId, weekStart: weekIso, hours, status }),
       });
       const data = await res.json();
       if (!res.ok) throw new Error(data.error || "Erro ao salvar horas.");
       setAllocations((prev) => {
         const filtered = prev.filter(
-          (a) => !(a.teamMemberId === memberId && a.clientId === clientId && a.weekStart === weekIso)
+          (a) => !(a.teamMemberId === memberId && a.projectId === projectId && a.weekStart === weekIso)
         );
         if (hours > 0) {
           filtered.push({
             id: data.id ?? key,
             teamMemberId: memberId,
-            clientId,
+            projectId,
             weekStart: weekIso,
             hours,
             status,
@@ -170,9 +187,9 @@ export default function ForecastBoard() {
     }
   }
 
-  function openEditor(memberId: string, clientId: string, weekIso: string) {
-    const key = `${memberId}|${clientId}|${weekIso}`;
-    const current = getCell(memberId, clientId, weekIso);
+  function openEditor(memberId: string, projectId: string, weekIso: string) {
+    const key = `${memberId}|${projectId}|${weekIso}`;
+    const current = getCell(memberId, projectId, weekIso);
     setDraftHours(current.hours > 0 ? String(current.hours) : "");
     setEditingKey(key);
   }
@@ -182,37 +199,39 @@ export default function ForecastBoard() {
     setDraftHours("");
   }
 
-  function commit(memberId: string, clientId: string, weekIso: string, status: AllocationStatus) {
+  function commit(memberId: string, projectId: string, weekIso: string, status: AllocationStatus) {
     const raw = draftHours.trim().replace(",", ".");
     const parsed = raw === "" ? 0 : Math.max(0, Number(raw));
-    saveCell(memberId, clientId, weekIso, Number.isFinite(parsed) ? parsed : 0, status);
+    saveCell(memberId, projectId, weekIso, Number.isFinite(parsed) ? parsed : 0, status);
     closeEditor();
   }
 
-  function addRow(memberId: string, clientId: string) {
+  function addRow(memberId: string, projectId: string) {
     setExtraRows((prev) => {
       const next = { ...prev };
       const set = new Set(next[memberId] ?? []);
-      set.add(clientId);
+      set.add(projectId);
       next[memberId] = set;
       return next;
     });
     setPickerFor(null);
   }
 
-  async function removeRow(memberId: string, clientId: string) {
+  async function removeRow(memberId: string, projectId: string) {
     const memberName = teamMembers.find((m) => m.id === memberId)?.name ?? "";
-    const clientName = clientById.get(clientId)?.name ?? "";
+    const project = projectById.get(projectId);
+    const client = project ? clientById.get(project.clientId) : undefined;
+    const label = project ? `${client?.name ?? ""} · ${project.name}` : "este projeto";
     const ok = window.confirm(
-      `Zerar as horas de "${clientName}" para ${memberName} nas semanas visíveis? Isso não afeta semanas fora do período exibido.`
+      `Zerar as horas de "${label}" para ${memberName} nas semanas visíveis? Isso não afeta semanas fora do período exibido.`
     );
     if (!ok) return;
 
-    await Promise.all(weekIsos.map((w) => saveCell(memberId, clientId, w, 0, "confirmado")));
+    await Promise.all(weekIsos.map((w) => saveCell(memberId, projectId, w, 0, "confirmado")));
     setExtraRows((prev) => {
       const next = { ...prev };
       const set = new Set(next[memberId] ?? []);
-      set.delete(clientId);
+      set.delete(projectId);
       next[memberId] = set;
       return next;
     });
@@ -220,33 +239,52 @@ export default function ForecastBoard() {
 
   const visibleMembers = teamMembers.filter((m) => showInactive || m.active);
 
+  const activeClients = clients.filter((c) => c.active);
+
   return (
     <div className="max-w-[1180px] mx-auto px-7 py-10">
       <div className="flex items-start justify-between gap-4 flex-wrap mb-6">
         <div>
           <h1 className="text-[26px] leading-tight text-ink mb-1">Forecast da operação</h1>
           <p className="text-sm text-ink-secondary max-w-[62ch]">
-            Aloque cada pessoa por cliente, semana a semana. Clique numa célula
+            Aloque cada pessoa por projeto, semana a semana. Clique numa célula
             para lançar horas e marcar se a alocação já está confirmada ou é
             apenas prevista.
           </p>
         </div>
-        <button
-          type="button"
-          onClick={() => setManageOpen((v) => !v)}
-          className="text-sm font-semibold border border-border-strong rounded-md px-3.5 py-2 text-ink-secondary hover:border-verde hover:text-verde transition-colors"
-        >
-          {manageOpen ? "Fechar gerenciamento" : "Gerenciar equipe e clientes"}
-        </button>
+        <div className="flex items-center gap-2">
+          <button
+            type="button"
+            onClick={() => setBalanceOpen((v) => !v)}
+            className="text-sm font-semibold border border-border-strong rounded-md px-3.5 py-2 text-ink-secondary hover:border-verde hover:text-verde transition-colors"
+          >
+            {balanceOpen ? "Fechar saldo dos projetos" : "Saldo dos projetos"}
+          </button>
+          <button
+            type="button"
+            onClick={() => setManageOpen((v) => !v)}
+            className="text-sm font-semibold border border-border-strong rounded-md px-3.5 py-2 text-ink-secondary hover:border-verde hover:text-verde transition-colors"
+          >
+            {manageOpen ? "Fechar gerenciamento" : "Gerenciar equipe, clientes e projetos"}
+          </button>
+        </div>
       </div>
+
+      {balanceOpen && (
+        <div className="bg-surface border border-border rounded-xl p-5 shadow-[0_1px_2px_rgba(48,48,48,0.06),0_8px_24px_-12px_rgba(48,48,48,0.18)] mb-6">
+          <ProjectBalancePanel clients={clients} projects={projects} />
+        </div>
+      )}
 
       {manageOpen && (
         <div className="bg-surface border border-border rounded-xl p-5 shadow-[0_1px_2px_rgba(48,48,48,0.06),0_8px_24px_-12px_rgba(48,48,48,0.18)] mb-6">
           <ManagePanel
             teamMembers={teamMembers}
             clients={clients}
+            projects={projects}
             setTeamMembers={setTeamMembers}
             setClients={setClients}
+            setProjects={setProjects}
           />
         </div>
       )}
@@ -316,8 +354,8 @@ export default function ForecastBoard() {
         <table className="w-full text-sm border-collapse min-w-[780px]">
           <thead>
             <tr className="border-b border-border">
-              <th className="text-left font-semibold text-[10.5px] uppercase tracking-wide text-ink-faint px-4 py-3 min-w-[220px]">
-                Consultor / Cliente
+              <th className="text-left font-semibold text-[10.5px] uppercase tracking-wide text-ink-faint px-4 py-3 min-w-[240px]">
+                Consultor / Cliente · Projeto
               </th>
               {weeks.map((w) => (
                 <th
@@ -337,19 +375,19 @@ export default function ForecastBoard() {
               <tr>
                 <td colSpan={weeks.length + 2} className="px-4 py-8 text-center text-sm text-ink-faint">
                   {teamMembers.length === 0
-                    ? 'Nenhum consultor cadastrado. Clique em "Gerenciar equipe e clientes" para começar.'
+                    ? 'Nenhum consultor cadastrado. Clique em "Gerenciar equipe, clientes e projetos" para começar.'
                     : "Nenhum consultor ativo. Marque a opção acima para ver os arquivados."}
                 </td>
               </tr>
             )}
             {visibleMembers.map((member) => {
-              const rowClientIds = rowsForMember(member.id);
+              const rowProjectIds = rowsForMember(member.id);
               const weeklyTotals = weekIsos.map((w) =>
-                rowClientIds.reduce((s, cid) => s + getCell(member.id, cid, w).hours, 0)
+                rowProjectIds.reduce((s, pid) => s + getCell(member.id, pid, w).hours, 0)
               );
               const grandTotal = weeklyTotals.reduce((s, v) => s + v, 0);
-              const availableClients = clients.filter(
-                (c) => c.active && !rowClientIds.includes(c.id)
+              const availableProjects = projects.filter(
+                (p) => p.status === "ativo" && !rowProjectIds.includes(p.id)
               );
 
               return (
@@ -393,22 +431,37 @@ export default function ForecastBoard() {
                     </td>
                   </tr>
 
-                  {rowClientIds.map((cid) => {
-                    const client = clientById.get(cid);
-                    const rowTotal = weekIsos.reduce((s, w) => s + getCell(member.id, cid, w).hours, 0);
+                  {rowProjectIds.map((pid) => {
+                    const project = projectById.get(pid);
+                    const client = project ? clientById.get(project.clientId) : undefined;
+                    const meta = project ? CONTRACT_TYPE_META[project.contractType] : null;
+                    const rowTotal = weekIsos.reduce((s, w) => s + getCell(member.id, pid, w).hours, 0);
                     return (
-                      <tr key={cid} className="border-t border-border">
+                      <tr key={pid} className="border-t border-border">
                         <td className="pl-8 pr-4 py-2 text-ink-secondary align-top">
-                          <span className="inline-flex items-center gap-2">
+                          <span className="inline-flex items-center gap-2 flex-wrap">
                             <span
                               className="w-2 h-2 rounded-sm shrink-0"
                               style={{ background: client?.color ?? "#999" }}
                             />
-                            {client?.name ?? "Cliente removido"}
+                            <span className="text-ink-faint">{client?.name ?? "Cliente removido"}</span>
+                            <span className="text-ink-faint">·</span>
+                            {project?.name ?? "Projeto removido"}
+                            {meta && (
+                              <span
+                                className="text-[9px] font-semibold uppercase tracking-wide text-ink-faint border border-border-strong rounded px-1 py-0.5"
+                                title={meta.hint}
+                              >
+                                {meta.tag}
+                              </span>
+                            )}
+                            {project?.status === "pausado" && (
+                              <span className="text-[9px] uppercase text-ink-faint">pausado</span>
+                            )}
                             <button
                               type="button"
-                              onClick={() => removeRow(member.id, cid)}
-                              className="text-ink-faint hover:text-critical text-xs ml-1"
+                              onClick={() => removeRow(member.id, pid)}
+                              className="text-ink-faint hover:text-critical text-xs"
                               aria-label="Zerar alocação"
                               title="Zerar horas nas semanas visíveis"
                             >
@@ -417,11 +470,11 @@ export default function ForecastBoard() {
                           </span>
                         </td>
                         {weekIsos.map((w) => {
-                          const cell = getCell(member.id, cid, w);
-                          const key = `${member.id}|${cid}|${w}`;
+                          const cell = getCell(member.id, pid, w);
+                          const key = `${member.id}|${pid}|${w}`;
                           const isSaving = savingKeys.has(key);
                           const isEditing = editingKey === key;
-                          const meta = STATUS_META[cell.status];
+                          const statusMeta = STATUS_META[cell.status];
 
                           return (
                             <td key={w} className="px-1.5 py-1.5 text-right align-top">
@@ -435,7 +488,7 @@ export default function ForecastBoard() {
                                     value={draftHours}
                                     onChange={(e) => setDraftHours(e.target.value)}
                                     onKeyDown={(e) => {
-                                      if (e.key === "Enter") commit(member.id, cid, w, cell.status);
+                                      if (e.key === "Enter") commit(member.id, pid, w, cell.status);
                                       if (e.key === "Escape") closeEditor();
                                     }}
                                     placeholder="0"
@@ -444,7 +497,7 @@ export default function ForecastBoard() {
                                   <div className="flex gap-1">
                                     <button
                                       type="button"
-                                      onClick={() => commit(member.id, cid, w, "confirmado")}
+                                      onClick={() => commit(member.id, pid, w, "confirmado")}
                                       className={`flex-1 text-[9.5px] font-semibold rounded border px-1 py-0.5 transition-colors ${STATUS_META.confirmado.pillIdle}`}
                                       title="Salvar como confirmado"
                                     >
@@ -452,7 +505,7 @@ export default function ForecastBoard() {
                                     </button>
                                     <button
                                       type="button"
-                                      onClick={() => commit(member.id, cid, w, "previsto")}
+                                      onClick={() => commit(member.id, pid, w, "previsto")}
                                       className={`flex-1 text-[9.5px] font-semibold rounded border px-1 py-0.5 transition-colors ${STATUS_META.previsto.pillIdle}`}
                                       title="Salvar como previsto"
                                     >
@@ -470,12 +523,12 @@ export default function ForecastBoard() {
                               ) : (
                                 <button
                                   type="button"
-                                  onClick={() => openEditor(member.id, cid, w)}
+                                  onClick={() => openEditor(member.id, pid, w)}
                                   disabled={isSaving}
-                                  title={cell.hours > 0 ? meta.label : "Clique para alocar horas"}
+                                  title={cell.hours > 0 ? statusMeta.label : "Clique para alocar horas"}
                                   className={`ml-auto min-w-[54px] min-h-[26px] flex items-center justify-end rounded-md border px-2 py-1 text-sm mono font-semibold transition-colors disabled:opacity-50 ${
                                     cell.hours > 0
-                                      ? meta.badge
+                                      ? statusMeta.badge
                                       : "border-dashed border-border-strong/70 hover:border-verde/50"
                                   }`}
                                 >
@@ -506,17 +559,26 @@ export default function ForecastBoard() {
                             className="border border-border-strong rounded-md px-2 py-1 text-xs bg-white"
                           >
                             <option value="" disabled>
-                              Escolher cliente…
+                              Escolher projeto…
                             </option>
-                            {availableClients.map((c) => (
-                              <option key={c.id} value={c.id}>
-                                {c.name}
-                              </option>
-                            ))}
+                            {activeClients.map((c) => {
+                              const opts = availableProjects.filter((p) => p.clientId === c.id);
+                              if (opts.length === 0) return null;
+                              return (
+                                <optgroup key={c.id} label={c.name}>
+                                  {opts.map((p) => (
+                                    <option key={p.id} value={p.id}>
+                                      {p.name} ({CONTRACT_TYPE_META[p.contractType].tag})
+                                    </option>
+                                  ))}
+                                </optgroup>
+                              );
+                            })}
                           </select>
-                          {availableClients.length === 0 && (
+                          {availableProjects.length === 0 && (
                             <span className="text-xs text-ink-faint">
-                              Todos os clientes ativos já estão alocados a este consultor.
+                              Todos os projetos ativos já estão alocados a este consultor. Cadastre
+                              mais projetos em &quot;Gerenciar equipe, clientes e projetos&quot;.
                             </span>
                           )}
                         </div>
@@ -526,7 +588,7 @@ export default function ForecastBoard() {
                           onClick={() => setPickerFor(member.id)}
                           className="text-xs font-semibold text-verde hover:underline"
                         >
-                          + Alocar cliente
+                          + Alocar projeto
                         </button>
                       )}
                     </td>

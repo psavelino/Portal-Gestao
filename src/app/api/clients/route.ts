@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { z } from "zod";
 import { sql } from "@/lib/db";
+import { CLIENT_PALETTE } from "@/lib/forecast-types";
 
 export async function GET() {
   const rows = await sql`
@@ -10,8 +11,6 @@ export async function GET() {
   `;
   return NextResponse.json(rows);
 }
-
-const PALETTE = ["#009999", "#FF9B00", "#4A3AA7", "#1F8F5C", "#C6383D", "#666666"];
 
 const createSchema = z.object({
   name: z.string().trim().min(2, "Informe o nome do cliente."),
@@ -36,7 +35,7 @@ export async function POST(request: Request) {
   const { name } = parsed.data;
   const countRows = await sql`select count(*)::int as n from clients`;
   const n = (countRows[0]?.n as number) ?? 0;
-  const color = parsed.data.color || PALETTE[n % PALETTE.length];
+  const color = parsed.data.color || CLIENT_PALETTE[n % CLIENT_PALETTE.length];
 
   const rows = await sql`
     insert into clients (name, color)
