@@ -59,6 +59,11 @@
   .header-meta .label{ text-transform:uppercase; letter-spacing:0.08em; font-size:10.5px; color:var(--ink-faint); }
   .header-meta .val{ color:var(--ink-secondary); font-weight:500; }
 
+  /* ---------- Export ---------- */
+  .header-actions{ display:flex; flex-direction:column; align-items:flex-end; gap:6px; margin-bottom:14px; }
+  .header-actions .btn{ display:inline-flex; align-items:center; gap:7px; }
+  .header-actions .hint{ font-size:11px; color:var(--ink-faint); text-align:right; max-width:220px; line-height:1.5; }
+
   /* ---------- Upload / data source ---------- */
   .upload-card{
     background:var(--surface); border:1px solid var(--border); border-radius:10px;
@@ -240,6 +245,25 @@
     .tables-grid{ grid-template-columns:1fr !important; }
     .filter-summary{ margin-left:0; text-align:left; }
   }
+
+  /* ---------- Print / PDF export ----------
+     O botão "Exportar PDF" chama window.print(). Estas regras escondem os
+     controles interativos (upload, filtros, o próprio botão) e evitam que
+     cards/tabelas sejam cortados no meio entre páginas, para o PDF sair
+     parecido com um relatório pronto para o cliente. */
+  .no-print{ display:none !important; }
+  @media print{
+    html, body{ background:#fff; }
+    .page{ max-width:100%; padding:0; margin:0; }
+    .upload-section, .filters-section, .no-print{ display:none !important; }
+    .report-header{ padding-top:0; }
+    .kpi-card, .chart-card, .table-card, .people-card{ box-shadow:none; border-color:#C3CBCB; }
+    .kpi-grid, .tables-grid{ break-inside:avoid; }
+    .kpi-card, .chart-card, .table-card, .people-card, .people-row{ break-inside:avoid; }
+    section{ margin-bottom:18px; }
+    .chart-tooltip{ display:none !important; }
+    @page{ size:A4 portrait; margin:14mm 12mm; }
+  }
 </style>
 </head>
 <body>
@@ -251,9 +275,15 @@
       <h1>Saldo de Horas &mdash; Pacotes Recorrentes</h1>
       <div class="subtitle" id="header-subtitle">Cliente <strong>de exemplo</strong> &middot; Ciclo Abril&ndash;Agosto &middot; Pacotes recorrentes de Melhoria (100h/mês) e Suporte (36h/mês)</div>
     </div>
-    <div class="header-meta">
-      <div><span class="label">Fonte</span><br><span class="val" id="meta-source">Export de exemplo (plataforma de apontamento)</span></div>
-      <div style="margin-top:6px;"><span class="label" id="meta-date-label">Gerado em</span><br><span class="val" id="meta-date">01/09/2026</span></div>
+    <div>
+      <div class="header-actions no-print">
+        <button class="btn primary" id="btn-export-pdf" type="button">&#8681; Exportar PDF</button>
+        <span class="hint">Abre a impressão do navegador — escolha "Salvar como PDF" para baixar o relatório e enviar ao cliente.</span>
+      </div>
+      <div class="header-meta">
+        <div><span class="label">Fonte</span><br><span class="val" id="meta-source">Export de exemplo (plataforma de apontamento)</span></div>
+        <div style="margin-top:6px;"><span class="label" id="meta-date-label">Gerado em</span><br><span class="val" id="meta-date">01/09/2026</span></div>
+      </div>
     </div>
   </header>
 
@@ -804,6 +834,32 @@
   }
 
   // =========================================================
+  // Exportar PDF (via impressão do navegador)
+  // =========================================================
+  function slugify(str){
+    return (str||'')
+      .normalize('NFD').replace(/[̀-ͯ]/g,'')
+      .toLowerCase().trim()
+      .replace(/[^a-z0-9]+/g,'-').replace(/^-+|-+$/g,'') || 'join4';
+  }
+
+  function exportToPdf(){
+    const clientMatch = /Cliente <strong>([^<]+)<\/strong>/.exec(DATA.meta.subtitle || '');
+    const clientSlug = slugify(clientMatch ? clientMatch[1] : 'join4');
+    const dateSlug = new Date().toISOString().slice(0,10);
+    const originalTitle = document.title;
+    // O navegador usa document.title como sugestão de nome de arquivo no
+    // diálogo de impressão/"Salvar como PDF" — deixa o download já com um
+    // nome útil (cliente + data) em vez do título genérico da página.
+    document.title = 'fechamento-horas-' + clientSlug + '-' + dateSlug;
+    const restore = () => { document.title = originalTitle; };
+    window.addEventListener('afterprint', restore, { once:true });
+    window.print();
+    // Fallback: nem todo navegador dispara "afterprint" de forma confiável.
+    setTimeout(restore, 3000);
+  }
+
+  // =========================================================
   // Upload / parsing pipeline
   // =========================================================
   const uploadState = { phase:'idle', error:null, warnings:[], parsed:null };
@@ -1093,6 +1149,8 @@
     if(file) handleFile(file);
     e.target.value = '';
   });
+
+  document.getElementById('btn-export-pdf').addEventListener('click', exportToPdf);
 
   // =========================================================
   // Init
