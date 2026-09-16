@@ -251,7 +251,6 @@
      controles interativos (upload, filtros, o próprio botão) e evitam que
      cards/tabelas sejam cortados no meio entre páginas, para o PDF sair
      parecido com um relatório pronto para o cliente. */
-  .no-print{ display:none !important; }
   @media print{
     html, body{ background:#fff; }
     .page{ max-width:100%; padding:0; margin:0; }
@@ -277,8 +276,11 @@
     </div>
     <div>
       <div class="header-actions no-print">
-        <button class="btn primary" id="btn-export-pdf" type="button">&#8681; Exportar PDF</button>
-        <span class="hint">Abre a impressão do navegador — escolha "Salvar como PDF" para baixar o relatório e enviar ao cliente.</span>
+        <div style="display:flex; gap:8px;">
+          <button class="btn primary" id="btn-export-pdf" type="button">&#8681; Exportar PDF</button>
+          <button class="btn" id="btn-export-html" type="button">&#8681; Exportar HTML</button>
+        </div>
+        <span class="hint">PDF: abre a impressão do navegador — escolha "Salvar como PDF". HTML: baixa este relatório (com os dados e filtros atuais) como um arquivo único para enviar por e-mail.</span>
       </div>
       <div class="header-meta">
         <div><span class="label">Fonte</span><br><span class="val" id="meta-source">Export de exemplo (plataforma de apontamento)</span></div>
@@ -843,20 +845,66 @@
       .replace(/[^a-z0-9]+/g,'-').replace(/^-+|-+$/g,'') || 'join4';
   }
 
-  function exportToPdf(){
+  function exportBaseName(){
     const clientMatch = /Cliente <strong>([^<]+)<\/strong>/.exec(DATA.meta.subtitle || '');
     const clientSlug = slugify(clientMatch ? clientMatch[1] : 'join4');
     const dateSlug = new Date().toISOString().slice(0,10);
+    return 'fechamento-horas-' + clientSlug + '-' + dateSlug;
+  }
+
+  function exportToPdf(){
     const originalTitle = document.title;
     // O navegador usa document.title como sugestão de nome de arquivo no
     // diálogo de impressão/"Salvar como PDF" — deixa o download já com um
     // nome útil (cliente + data) em vez do título genérico da página.
-    document.title = 'fechamento-horas-' + clientSlug + '-' + dateSlug;
+    document.title = exportBaseName();
     const restore = () => { document.title = originalTitle; };
     window.addEventListener('afterprint', restore, { once:true });
     window.print();
     // Fallback: nem todo navegador dispara "afterprint" de forma confiável.
     setTimeout(restore, 3000);
+  }
+
+  // =========================================================
+  // Exportar HTML (snapshot autocontido, com os dados e filtros
+  // atuais já "congelados" como o novo padrão da página)
+  // =========================================================
+  function exportToHtml(){
+    // JSON.stringify escapado para não fechar a tag de script se algum
+    // texto (ex.: nome de cliente ou de arquivo) contiver essa sequência.
+    const dataJson = JSON.stringify(DATA).replace(/</g, '\\u003c');
+    const projectJson = JSON.stringify(state.project);
+    const monthsJson = JSON.stringify(Array.from(state.months));
+
+    let html = '<!DOCTYPE html>\n' + document.documentElement.outerHTML;
+
+    // Faz os dados e o filtro atualmente exibidos na tela virarem o ponto
+    // de partida do arquivo exportado — quem abrir o HTML vê exatamente o
+    // que estava selecionado aqui, sem precisar subir planilha nenhuma.
+    html = html.replace(
+      'const DEFAULT_DATA = buildDefaultData();',
+      'const DEFAULT_DATA = ' + dataJson + ';'
+    );
+    html = html.replace(
+      'resetStateToAll();',
+      'resetStateToAll();\n  state.project = ' + projectJson + ';\n  state.months = new Set(' + monthsJson + ');'
+    );
+
+    const baseName = exportBaseName();
+    html = html.replace(
+      /<title>[^<]*<\/title>/,
+      '<title>' + escapeHtml(baseName) + '</title>'
+    );
+
+    const blob = new Blob([html], { type: 'text/html;charset=utf-8' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = baseName + '.html';
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    setTimeout(() => URL.revokeObjectURL(url), 2000);
   }
 
   // =========================================================
@@ -1151,6 +1199,7 @@
   });
 
   document.getElementById('btn-export-pdf').addEventListener('click', exportToPdf);
+  document.getElementById('btn-export-html').addEventListener('click', exportToHtml);
 
   // =========================================================
   // Init
