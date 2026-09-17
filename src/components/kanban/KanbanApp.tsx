@@ -190,11 +190,31 @@ export default function KanbanApp({
 
   if (boards.length === 0) {
     return (
-      <div className="max-w-[1400px] mx-auto px-7 py-10">
+      <div className="max-w-[1400px] mx-auto px-7 py-10 flex flex-col gap-5">
+        <div className="flex items-center justify-between gap-4 flex-wrap">
+          <h1 className="text-[24px] leading-tight text-ink">Kanban</h1>
+          {isAdmin && (
+            <a
+              href="/kanban/quadros"
+              className="text-sm font-semibold text-verde hover:underline"
+            >
+              Gerenciar quadros &rarr;
+            </a>
+          )}
+        </div>
         <div className="bg-surface-alt border border-border rounded-xl p-6 text-sm text-ink-secondary">
-          {canManage
-            ? "Nenhum quadro criado ainda. Crie o primeiro na tela de Quadros."
-            : "Você ainda não tem nenhum quadro liberado. Peça para a Join4 liberar o acesso."}
+          {isAdmin ? (
+            <>
+              Nenhum quadro criado ainda.{" "}
+              <a href="/kanban/quadros" className="font-semibold text-verde hover:underline">
+                Crie o primeiro na tela de Quadros &rarr;
+              </a>
+            </>
+          ) : canManage ? (
+            "Nenhum quadro criado ainda. Peça para um admin criar o primeiro na tela de Quadros."
+          ) : (
+            "Você ainda não tem nenhum quadro liberado. Peça para a Join4 liberar o acesso."
+          )}
         </div>
       </div>
     );
