@@ -4,7 +4,7 @@
 // (e rode a migração equivalente no banco em produção), (3) chame
 // `hasModuleAccess("chave-nova")` no topo da página do módulo.
 
-export const MODULE_KEYS = ["forecast", "fechamento"] as const;
+export const MODULE_KEYS = ["forecast", "fechamento", "kanban"] as const;
 export type ModuleKey = (typeof MODULE_KEYS)[number];
 
 export type ModuleDef = {
@@ -16,6 +16,7 @@ export type ModuleDef = {
 export const MODULES: ModuleDef[] = [
   { key: "forecast", label: "Forecast", href: "/forecast" },
   { key: "fechamento", label: "Fechamento de Horas", href: "/fechamento" },
+  { key: "kanban", label: "Kanban", href: "/kanban" },
 ];
 
 export function isModuleKey(value: string): value is ModuleKey {

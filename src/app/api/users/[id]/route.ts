@@ -16,7 +16,7 @@ async function requireAdmin() {
 
 const updateSchema = z.object({
   name: z.string().trim().min(2).optional(),
-  role: z.enum(["admin", "member"]).optional(),
+  role: z.enum(["admin", "member", "client"]).optional(),
   active: z.boolean().optional(),
   resetPassword: z.boolean().optional(),
 });

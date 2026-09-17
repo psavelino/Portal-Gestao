@@ -6,24 +6,30 @@ export default function NavHeader({
   userName,
   userEmail,
   isAdmin,
+  isClient,
   permittedModules,
 }: {
   userName?: string | null;
   userEmail?: string | null;
   isAdmin?: boolean;
+  isClient?: boolean;
   permittedModules?: ModuleKey[] | "all";
 }) {
   const canSee = (key: ModuleKey) =>
     permittedModules === "all" || (permittedModules ?? []).includes(key);
 
-  const navLinks = [
-    { href: "/", label: "Início" },
-    ...MODULES.filter((m) => canSee(m.key)).map((m) => ({
-      href: m.href,
-      label: m.label,
-    })),
-    ...(isAdmin ? [{ href: "/usuarios", label: "Usuários" }] : []),
-  ];
+  // Usuário externo (role 'client'): navegação mínima, direto para o quadro
+  // liberado — sem acesso ao resto do portal.
+  const navLinks = isClient
+    ? [{ href: "/kanban", label: "Meu quadro" }]
+    : [
+        { href: "/", label: "Início" },
+        ...MODULES.filter((m) => canSee(m.key)).map((m) => ({
+          href: m.href,
+          label: m.label,
+        })),
+        ...(isAdmin ? [{ href: "/usuarios", label: "Usuários" }] : []),
+      ];
 
   return (
     <header className="border-b border-border bg-surface">

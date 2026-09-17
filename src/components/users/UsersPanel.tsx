@@ -1,8 +1,14 @@
 "use client";
 
 import { useState } from "react";
-import type { AppUserWithAccess } from "@/lib/users";
+import type { AppRole, AppUserWithAccess } from "@/lib/users";
 import { MODULES, type ModuleKey } from "@/lib/modules";
+
+const ROLE_LABELS: Record<AppRole, string> = {
+  admin: "Admin",
+  member: "Membro",
+  client: "Cliente (externo)",
+};
 
 export default function UsersPanel({
   initialUsers,
@@ -20,7 +26,7 @@ export default function UsersPanel({
   const [name, setName] = useState("");
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
-  const [role, setRole] = useState<"admin" | "member">("member");
+  const [role, setRole] = useState<AppRole>("member");
   const [moduleKeys, setModuleKeys] = useState<ModuleKey[]>([]);
 
   function resetForm() {
@@ -48,7 +54,7 @@ export default function UsersPanel({
           email: email.trim(),
           password,
           role,
-          moduleKeys: role === "admin" ? [] : moduleKeys,
+          moduleKeys: role === "member" ? moduleKeys : [],
         }),
       });
       const data = await res.json();
@@ -199,11 +205,12 @@ export default function UsersPanel({
               </label>
               <select
                 value={role}
-                onChange={(e) => setRole(e.target.value as "admin" | "member")}
+                onChange={(e) => setRole(e.target.value as AppRole)}
                 className="border border-border-strong rounded-md px-2.5 py-1.5 text-sm bg-white"
               >
                 <option value="member">Membro</option>
                 <option value="admin">Admin</option>
+                <option value="client">Cliente (externo)</option>
               </select>
             </div>
           </div>
@@ -212,7 +219,9 @@ export default function UsersPanel({
             <span className="text-[10px] uppercase tracking-wide text-ink-faint block mb-1.5">
               {role === "admin"
                 ? "Admin tem acesso a todos os módulos automaticamente"
-                : "Módulos liberados"}
+                : role === "client"
+                  ? "Cliente não navega pelos módulos — o acesso é por quadro, na tela Kanban > Gerenciar quadros"
+                  : "Módulos liberados"}
             </span>
             {role === "member" && (
               <div className="flex flex-wrap gap-3">
@@ -263,10 +272,12 @@ export default function UsersPanel({
                       className={`text-[10px] font-semibold uppercase tracking-wide px-1.5 py-0.5 rounded-full ${
                         u.role === "admin"
                           ? "bg-verde/10 text-verde"
-                          : "bg-surface-alt text-ink-secondary"
+                          : u.role === "client"
+                            ? "bg-laranja/12 text-[#9A6300]"
+                            : "bg-surface-alt text-ink-secondary"
                       }`}
                     >
-                      {u.role === "admin" ? "Admin" : "Membro"}
+                      {ROLE_LABELS[u.role]}
                     </span>
                     {!u.active && (
                       <span className="text-[10px] font-semibold uppercase tracking-wide px-1.5 py-0.5 rounded-full bg-critical-bg text-critical">
@@ -277,16 +288,16 @@ export default function UsersPanel({
                   <div className="text-xs text-ink-faint">{u.email}</div>
                 </div>
                 <div className="flex items-center gap-2 flex-wrap">
-                  <button
-                    type="button"
+                  <select
+                    value={u.role}
                     disabled={busy}
-                    onClick={() =>
-                      patchUser(u.id, { role: u.role === "admin" ? "member" : "admin" })
-                    }
-                    className="text-xs font-semibold text-ink-secondary hover:text-verde disabled:opacity-50"
+                    onChange={(e) => patchUser(u.id, { role: e.target.value as AppRole })}
+                    className="text-xs font-medium border border-border-strong rounded-md px-1.5 py-1 bg-white disabled:opacity-50"
                   >
-                    {u.role === "admin" ? "Tornar membro" : "Tornar admin"}
-                  </button>
+                    <option value="member">Membro</option>
+                    <option value="admin">Admin</option>
+                    <option value="client">Cliente (externo)</option>
+                  </select>
                   <button
                     type="button"
                     disabled={busy}

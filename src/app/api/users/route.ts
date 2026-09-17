@@ -23,7 +23,7 @@ const createSchema = z.object({
   name: z.string().trim().min(2, "Informe o nome completo."),
   email: z.string().trim().email("Email inválido."),
   password: z.string().min(8, "A senha precisa ter pelo menos 8 caracteres."),
-  role: z.enum(["admin", "member"]).default("member"),
+  role: z.enum(["admin", "member", "client"]).default("member"),
   moduleKeys: z.array(z.enum(MODULE_KEYS)).default([]),
 });
 

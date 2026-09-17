@@ -2,12 +2,14 @@ import { sql } from "@/lib/db";
 import { hashPassword } from "@/lib/password";
 import type { ModuleKey } from "@/lib/modules";
 
+export type AppRole = "admin" | "member" | "client";
+
 export type AppUser = {
   id: string;
   name: string;
   email: string;
   passwordHash: string;
-  role: "admin" | "member";
+  role: AppRole;
   active: boolean;
 };
 
@@ -83,7 +85,7 @@ export async function adminCreateUser(params: {
   name: string;
   email: string;
   password: string;
-  role: "admin" | "member";
+  role: AppRole;
   moduleKeys: ModuleKey[];
 }): Promise<AppUserWithAccess> {
   const passwordHash = await hashPassword(params.password);
@@ -114,7 +116,7 @@ export async function countActiveAdmins(): Promise<number> {
 
 export async function updateUser(
   id: string,
-  data: { name?: string; role?: "admin" | "member"; active?: boolean }
+  data: { name?: string; role?: AppRole; active?: boolean }
 ): Promise<Omit<AppUserWithAccess, "moduleKeys"> | null> {
   const rows = await sql`
     update users set
@@ -162,4 +164,29 @@ export async function resetUserPassword(id: string): Promise<string | null> {
   `;
   if (rows.length === 0) return null;
   return tempPassword;
+}
+
+// Usuários da equipe interna (admin + member) que podem ser marcados como
+// responsáveis por um card do Kanban. Não inclui usuários 'client' — eles
+// são espectadores/externos, não recebem tarefas.
+export async function listAssignableUsers(): Promise<
+  { id: string; name: string; role: "admin" | "member" }[]
+> {
+  const rows = await sql`
+    select id, name, role from users
+    where active = true and role in ('admin', 'member')
+    order by name asc
+  `;
+  return rows as { id: string; name: string; role: "admin" | "member" }[];
+}
+
+// Usuários 'client' ativos — candidatos a receber acesso a um quadro em
+// board_access, listados na tela de gestão de quadros (/kanban/quadros).
+export async function listClientRoleUsers(): Promise<{ id: string; name: string; email: string }[]> {
+  const rows = await sql`
+    select id, name, email from users
+    where active = true and role = 'client'
+    order by name asc
+  `;
+  return rows as { id: string; name: string; email: string }[];
 }

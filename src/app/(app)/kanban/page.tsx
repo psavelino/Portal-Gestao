@@ -1,0 +1,22 @@
+import type { Metadata } from "next";
+import { auth } from "@/auth";
+import KanbanApp from "@/components/kanban/KanbanApp";
+import NoAccess from "@/components/NoAccess";
+import { canManageKanban, canUseKanban } from "@/lib/access";
+
+export const metadata: Metadata = { title: "Kanban · Join4 PMO" };
+
+export default async function KanbanPage() {
+  const [allowed, session] = await Promise.all([canUseKanban(), auth()]);
+  if (!allowed || !session?.user?.id) return <NoAccess moduleLabel="Kanban" />;
+
+  const canManage = await canManageKanban();
+
+  return (
+    <KanbanApp
+      canManage={canManage}
+      isAdmin={session.user.role === "admin"}
+      currentUserId={session.user.id}
+    />
+  );
+}

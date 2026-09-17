@@ -1,4 +1,5 @@
 import Link from "next/link";
+import { redirect } from "next/navigation";
 import { auth } from "@/auth";
 import { getUserModuleKeys } from "@/lib/users";
 import type { ModuleKey } from "@/lib/modules";
@@ -29,6 +30,15 @@ const MODULES: {
     tag: "Upload de planilha",
     accent: "var(--laranja)",
   },
+  {
+    key: "kanban",
+    href: "/kanban",
+    title: "Kanban",
+    description:
+      "Acompanhe as tarefas de cada cliente em quadros separados, com subtarefas, comentários e anexos.",
+    tag: "Equipe + cliente",
+    accent: "var(--accent-2)",
+  },
 ];
 
 const COMING_SOON = [
@@ -39,6 +49,9 @@ const COMING_SOON = [
 
 export default async function HomePage() {
   const session = await auth();
+  if (session?.user?.role === "client") {
+    redirect("/kanban");
+  }
   const isAdmin = session?.user?.role === "admin";
   const permittedModules: ModuleKey[] | "all" = isAdmin
     ? "all"
