@@ -1,9 +1,14 @@
 import type { Metadata } from "next";
 import Link from "next/link";
+import NoAccess from "@/components/NoAccess";
+import { hasModuleAccess } from "@/lib/access";
 
 export const metadata: Metadata = { title: "Fechamento de Horas · Join4 PMO" };
 
-export default function FechamentoPage() {
+export default async function FechamentoPage() {
+  const allowed = await hasModuleAccess("fechamento");
+  if (!allowed) return <NoAccess moduleLabel="Fechamento de Horas" />;
+
   return (
     <div className="flex flex-col" style={{ height: "calc(100vh - 64px)" }}>
       <div className="border-b border-border bg-surface px-7 py-2.5 flex items-center justify-between gap-4 flex-wrap">

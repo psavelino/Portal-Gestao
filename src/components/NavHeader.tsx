@@ -1,19 +1,30 @@
 import Link from "next/link";
 import SignOutButton from "@/components/SignOutButton";
-
-const NAV_LINKS = [
-  { href: "/", label: "Início" },
-  { href: "/forecast", label: "Forecast" },
-  { href: "/fechamento", label: "Fechamento de Horas" },
-];
+import { MODULES, type ModuleKey } from "@/lib/modules";
 
 export default function NavHeader({
   userName,
   userEmail,
+  isAdmin,
+  permittedModules,
 }: {
   userName?: string | null;
   userEmail?: string | null;
+  isAdmin?: boolean;
+  permittedModules?: ModuleKey[] | "all";
 }) {
+  const canSee = (key: ModuleKey) =>
+    permittedModules === "all" || (permittedModules ?? []).includes(key);
+
+  const navLinks = [
+    { href: "/", label: "Início" },
+    ...MODULES.filter((m) => canSee(m.key)).map((m) => ({
+      href: m.href,
+      label: m.label,
+    })),
+    ...(isAdmin ? [{ href: "/usuarios", label: "Usuários" }] : []),
+  ];
+
   return (
     <header className="border-b border-border bg-surface">
       <div className="max-w-[1180px] mx-auto px-7 h-16 flex items-center justify-between gap-6">
@@ -25,7 +36,7 @@ export default function NavHeader({
             </span>
           </Link>
           <nav className="flex items-center gap-1">
-            {NAV_LINKS.map((link) => (
+            {navLinks.map((link) => (
               <Link
                 key={link.href}
                 href={link.href}

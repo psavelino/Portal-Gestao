@@ -29,6 +29,7 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
         const { email, password } = parsed.data;
         const user = await getUserByEmail(email);
         if (!user) return null;
+        if (!user.active) return null; // conta desativada por um admin
 
         const valid = await verifyPassword(password, user.passwordHash);
         if (!valid) return null;

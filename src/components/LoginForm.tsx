@@ -3,7 +3,6 @@
 import { useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { signIn } from "next-auth/react";
-import Link from "next/link";
 
 export default function LoginForm() {
   const router = useRouter();
@@ -85,10 +84,7 @@ export default function LoginForm() {
       </form>
 
       <p className="text-sm text-ink-secondary mt-5 text-center">
-        Ainda não tem conta?{" "}
-        <Link href="/signup" className="font-semibold text-verde">
-          Cadastre-se
-        </Link>
+        Sem acesso? Peça para um administrador do Join4 PMO criar sua conta.
       </p>
     </div>
   );

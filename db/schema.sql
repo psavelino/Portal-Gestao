@@ -14,7 +14,21 @@ create table if not exists users (
   email         text not null unique,
   password_hash text not null,
   role          text not null default 'member' check (role in ('admin', 'member')),
+  active        boolean not null default true,   -- desativado = não consegue mais logar
   created_at    timestamptz not null default now()
+);
+
+-- ---------------------------------------------------------------------------
+-- Permissão de acesso a módulos: quais módulos do portal cada usuário pode
+-- abrir. Admin (users.role = 'admin') sempre tem acesso a tudo e não precisa
+-- de linha aqui — esta tabela só vale para usuários 'member'. Ao adicionar
+-- um módulo novo no portal, inclua a chave dele no check abaixo.
+-- ---------------------------------------------------------------------------
+create table if not exists user_module_access (
+  user_id     uuid not null references users(id) on delete cascade,
+  module_key  text not null check (module_key in ('forecast', 'fechamento')),
+  created_at  timestamptz not null default now(),
+  primary key (user_id, module_key)
 );
 
 -- ---------------------------------------------------------------------------

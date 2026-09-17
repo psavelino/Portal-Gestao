@@ -38,7 +38,11 @@
   --color-verde: var(--verde);
   --color-laranja: var(--laranja);
   --color-good: var(--good);
+  --color-good-bg: var(--good-bg);
+  --color-warning: var(--warning);
+  --color-warning-bg: var(--warning-bg);
   --color-critical: var(--critical);
+  --color-critical-bg: var(--critical-bg);
   --font-sans: "IBM Plex Sans", ui-sans-serif, system-ui, sans-serif;
   --font-condensed: "IBM Plex Sans Condensed", "IBM Plex Sans", sans-serif;
   --font-mono: "IBM Plex Mono", ui-monospace, monospace;
