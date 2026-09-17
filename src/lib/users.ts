@@ -16,6 +16,7 @@ export type AppUser = {
 export type AppUserWithAccess = Omit<AppUser, "passwordHash"> & {
   createdAt: string;
   moduleKeys: ModuleKey[];
+  leaderId: string | null;
 };
 
 export async function getUserByEmail(email: string): Promise<AppUser | null> {
@@ -55,7 +56,7 @@ export async function getUserById(
 
 export async function listUsersWithAccess(): Promise<AppUserWithAccess[]> {
   const users = await sql`
-    select id, name, email, role, active, created_at as "createdAt"
+    select id, name, email, role, active, leader_id as "leaderId", created_at as "createdAt"
     from users
     order by created_at asc
   `;
@@ -87,12 +88,13 @@ export async function adminCreateUser(params: {
   password: string;
   role: AppRole;
   moduleKeys: ModuleKey[];
+  leaderId?: string | null;
 }): Promise<AppUserWithAccess> {
   const passwordHash = await hashPassword(params.password);
   const rows = await sql`
-    insert into users (name, email, password_hash, role)
-    values (${params.name}, ${params.email.toLowerCase().trim()}, ${passwordHash}, ${params.role})
-    returning id, name, email, role, active, created_at as "createdAt"
+    insert into users (name, email, password_hash, role, leader_id)
+    values (${params.name}, ${params.email.toLowerCase().trim()}, ${passwordHash}, ${params.role}, ${params.leaderId ?? null})
+    returning id, name, email, role, active, leader_id as "leaderId", created_at as "createdAt"
   `;
   const user = rows[0] as Omit<AppUserWithAccess, "moduleKeys">;
 
@@ -116,17 +118,48 @@ export async function countActiveAdmins(): Promise<number> {
 
 export async function updateUser(
   id: string,
-  data: { name?: string; role?: AppRole; active?: boolean }
+  data: { name?: string; role?: AppRole; active?: boolean; leaderId?: string | null }
 ): Promise<Omit<AppUserWithAccess, "moduleKeys"> | null> {
-  const rows = await sql`
-    update users set
-      name = coalesce(${data.name ?? null}, name),
-      role = coalesce(${data.role ?? null}, role),
-      active = coalesce(${data.active ?? null}, active)
-    where id = ${id}
-    returning id, name, email, role, active, created_at as "createdAt"
-  `;
+  // leaderId é tri-state (undefined = não mexe, null = remove o líder,
+  // string = define) — coalesce() não dá pra limpar um campo pra null, por
+  // isso o update de leader_id é uma atribuição direta numa query separada
+  // quando a chave veio no payload (mesmo padrão usado em team-members).
+  const rows =
+    data.leaderId !== undefined
+      ? await sql`
+          update users set
+            name = coalesce(${data.name ?? null}, name),
+            role = coalesce(${data.role ?? null}, role),
+            active = coalesce(${data.active ?? null}, active),
+            leader_id = ${data.leaderId}
+          where id = ${id}
+          returning id, name, email, role, active, leader_id as "leaderId", created_at as "createdAt"
+        `
+      : await sql`
+          update users set
+            name = coalesce(${data.name ?? null}, name),
+            role = coalesce(${data.role ?? null}, role),
+            active = coalesce(${data.active ?? null}, active)
+          where id = ${id}
+          returning id, name, email, role, active, leader_id as "leaderId", created_at as "createdAt"
+        `;
   return (rows[0] as Omit<AppUserWithAccess, "moduleKeys"> | undefined) ?? null;
+}
+
+// Todos os usuários liderados por `userId`, direta ou indiretamente
+// (recursivo — squad leader → techleads → consultores dos techleads, etc).
+// Usado pro filtro "minha equipe" no Kanban/Forecast e pra bloquear ciclos
+// de liderança ao trocar o líder de alguém.
+export async function getDescendantUserIds(userId: string): Promise<string[]> {
+  const rows = await sql`
+    with recursive descendants as (
+      select id from users where leader_id = ${userId}
+      union all
+      select u.id from users u join descendants d on u.leader_id = d.id
+    )
+    select id from descendants
+  `;
+  return (rows as { id: string }[]).map((r) => r.id);
 }
 
 // Substitui todo o conjunto de módulos liberados para o usuário pelo

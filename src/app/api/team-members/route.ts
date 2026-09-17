@@ -7,7 +7,7 @@ export async function GET() {
   const rows = await sql`
     select
       id, name, role, weekly_capacity::float as "weeklyCapacity",
-      active, sort_order as "sortOrder"
+      active, sort_order as "sortOrder", user_id as "userId"
     from team_members
     order by sort_order asc, name asc
   `;
@@ -18,6 +18,7 @@ const createSchema = z.object({
   name: z.string().trim().min(2, "Informe o nome do consultor."),
   role: z.string().trim().optional(),
   weeklyCapacity: z.number().positive().max(168).default(40),
+  userId: z.string().uuid().nullable().optional(),
 });
 
 export async function POST(request: Request) {
@@ -38,12 +39,22 @@ export async function POST(request: Request) {
       { status: 400 }
     );
   }
-  const { name, role, weeklyCapacity } = parsed.data;
+  const { name, role, weeklyCapacity, userId } = parsed.data;
 
-  const rows = await sql`
-    insert into team_members (name, role, weekly_capacity)
-    values (${name}, ${role || null}, ${weeklyCapacity})
-    returning id, name, role, weekly_capacity::float as "weeklyCapacity", active, sort_order as "sortOrder"
-  `;
-  return NextResponse.json(rows[0], { status: 201 });
+  try {
+    const rows = await sql`
+      insert into team_members (name, role, weekly_capacity, user_id)
+      values (${name}, ${role || null}, ${weeklyCapacity}, ${userId ?? null})
+      returning id, name, role, weekly_capacity::float as "weeklyCapacity", active, sort_order as "sortOrder", user_id as "userId"
+    `;
+    return NextResponse.json(rows[0], { status: 201 });
+  } catch (err) {
+    if (err && typeof err === "object" && "code" in err && err.code === "23505") {
+      return NextResponse.json(
+        { error: "Essa conta de usuário já está vinculada a outro consultor." },
+        { status: 409 }
+      );
+    }
+    throw err;
+  }
 }

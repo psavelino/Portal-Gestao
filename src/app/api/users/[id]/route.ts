@@ -3,6 +3,7 @@ import { z } from "zod";
 import { auth } from "@/auth";
 import {
   countActiveAdmins,
+  getDescendantUserIds,
   getUserById,
   resetUserPassword,
   updateUser,
@@ -19,6 +20,7 @@ const updateSchema = z.object({
   role: z.enum(["admin", "member", "client"]).optional(),
   active: z.boolean().optional(),
   resetPassword: z.boolean().optional(),
+  leaderId: z.string().uuid().nullable().optional(),
 });
 
 export async function PATCH(
@@ -71,6 +73,28 @@ export async function PATCH(
     }
   }
 
+  // Trava de ciclo: não deixa marcar como "líder direto" nem a própria
+  // pessoa, nem alguém que já está (direta ou indiretamente) abaixo dela
+  // na hierarquia — senão o organograma vira um loop.
+  if (data.leaderId) {
+    if (data.leaderId === id) {
+      return NextResponse.json(
+        { error: "Uma pessoa não pode ser líder direto de si mesma." },
+        { status: 400 }
+      );
+    }
+    const descendants = await getDescendantUserIds(id);
+    if (descendants.includes(data.leaderId)) {
+      return NextResponse.json(
+        {
+          error:
+            "Essa escolha criaria um ciclo de liderança: a pessoa escolhida já está, direta ou indiretamente, sob a liderança deste usuário.",
+        },
+        { status: 400 }
+      );
+    }
+  }
+
   if (data.resetPassword) {
     const tempPassword = await resetUserPassword(id);
     if (!tempPassword) {
@@ -80,6 +104,7 @@ export async function PATCH(
       name: data.name,
       role: data.role,
       active: data.active,
+      leaderId: data.leaderId,
     });
     return NextResponse.json({ ...updated, tempPassword });
   }
@@ -88,6 +113,7 @@ export async function PATCH(
     name: data.name,
     role: data.role,
     active: data.active,
+    leaderId: data.leaderId,
   });
   if (!updated) {
     return NextResponse.json({ error: "Usuário não encontrado." }, { status: 404 });

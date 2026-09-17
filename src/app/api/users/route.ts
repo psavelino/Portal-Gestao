@@ -25,6 +25,7 @@ const createSchema = z.object({
   password: z.string().min(8, "A senha precisa ter pelo menos 8 caracteres."),
   role: z.enum(["admin", "member", "client"]).default("member"),
   moduleKeys: z.array(z.enum(MODULE_KEYS)).default([]),
+  leaderId: z.string().uuid().nullable().optional(),
 });
 
 export async function POST(request: Request) {
@@ -53,6 +54,15 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: "Já existe uma conta com esse email." }, { status: 409 });
   }
 
-  const user = await adminCreateUser(parsed.data);
-  return NextResponse.json(user, { status: 201 });
+  try {
+    const user = await adminCreateUser(parsed.data);
+    return NextResponse.json(user, { status: 201 });
+  } catch (err) {
+    // Violação de FK: leaderId apontando pra um usuário que não existe (ou
+    // que foi removido entre o carregamento da tela e o envio do form).
+    if (err && typeof err === "object" && "code" in err && err.code === "23503") {
+      return NextResponse.json({ error: "Líder direto informado não existe." }, { status: 400 });
+    }
+    throw err;
+  }
 }

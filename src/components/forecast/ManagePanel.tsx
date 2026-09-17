@@ -1,11 +1,13 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import type { TeamMember, Client, Project, ContractType, ProjectStatus } from "@/lib/forecast-types";
 import { CONTRACT_TYPE_META } from "@/lib/forecast-types";
 
 const CONTRACT_TYPES: ContractType[] = ["pacote_horas", "cmc", "outsourcing"];
 const PROJECT_STATUSES: ProjectStatus[] = ["ativo", "pausado", "encerrado"];
+
+type LinkableUser = { id: string; name: string; role: "admin" | "member" | "client"; active: boolean };
 
 export default function ManagePanel({
   teamMembers,
@@ -36,6 +38,19 @@ export default function ManagePanel({
   const [cmcMonthlyHours, setCmcMonthlyHours] = useState("");
   const [cmcStartMonth, setCmcStartMonth] = useState("");
   const [outsourcingPeople, setOutsourcingPeople] = useState("");
+
+  // Contas de login (users) candidatas a vincular a um consultor do
+  // Forecast — carregado só pra alimentar o select "conta vinculada" de
+  // cada linha da equipe (ver seção "Vincular consultor a usuário" no doc
+  // do projeto). Rota é admin-only, mas ManagePanel só existe dentro do
+  // gate canEdit (admin), então a chamada sempre vem de quem pode ver isso.
+  const [linkableUsers, setLinkableUsers] = useState<LinkableUser[]>([]);
+  useEffect(() => {
+    fetch("/api/users")
+      .then((r) => (r.ok ? r.json() : []))
+      .then((data: LinkableUser[]) => setLinkableUsers(data))
+      .catch(() => {});
+  }, []);
 
   async function addMember(e: React.FormEvent) {
     e.preventDefault();
@@ -99,6 +114,25 @@ export default function ManagePanel({
       if (res.ok) {
         setTeamMembers((prev) => prev.map((x) => (x.id === m.id ? data : x)));
       }
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function linkMemberUser(m: TeamMember, userId: string | null) {
+    setBusy(true);
+    setError(null);
+    try {
+      const res = await fetch(`/api/team-members/${m.id}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ userId }),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || "Erro ao vincular conta.");
+      setTeamMembers((prev) => prev.map((x) => (x.id === m.id ? data : x)));
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Erro ao vincular conta.");
     } finally {
       setBusy(false);
     }
@@ -223,24 +257,48 @@ export default function ManagePanel({
             </button>
           </form>
           <ul className="flex flex-col gap-1.5">
-            {teamMembers.map((m) => (
-              <li
-                key={m.id}
-                className="flex items-center justify-between gap-2 text-sm bg-surface-alt rounded-md px-3 py-1.5"
-              >
-                <span className={m.active ? "text-ink" : "text-ink-faint line-through"}>
-                  {m.name}
-                  {m.role ? ` · ${m.role}` : ""} · {m.weeklyCapacity}h/sem
-                </span>
-                <button
-                  type="button"
-                  onClick={() => toggleMemberActive(m)}
-                  className="text-xs font-semibold text-ink-secondary hover:text-verde"
+            {teamMembers.map((m) => {
+              const linkedElsewhere = new Set(
+                teamMembers.filter((x) => x.id !== m.id && x.userId).map((x) => x.userId as string)
+              );
+              const userOptions = linkableUsers.filter(
+                (u) => u.active && !linkedElsewhere.has(u.id)
+              );
+              return (
+                <li
+                  key={m.id}
+                  className="flex items-center justify-between gap-2 text-sm bg-surface-alt rounded-md px-3 py-1.5 flex-wrap"
                 >
-                  {m.active ? "Arquivar" : "Reativar"}
-                </button>
-              </li>
-            ))}
+                  <span className={m.active ? "text-ink" : "text-ink-faint line-through"}>
+                    {m.name}
+                    {m.role ? ` · ${m.role}` : ""} · {m.weeklyCapacity}h/sem
+                  </span>
+                  <div className="flex items-center gap-2">
+                    <select
+                      value={m.userId ?? ""}
+                      disabled={busy}
+                      title="Conta de login vinculada (pra essa pessoa poder ser filtrada como 'minha equipe')"
+                      onChange={(e) => linkMemberUser(m, e.target.value || null)}
+                      className="text-xs border border-border-strong rounded-md px-1.5 py-1 bg-white disabled:opacity-50 max-w-[150px]"
+                    >
+                      <option value="">Sem conta vinculada</option>
+                      {userOptions.map((u) => (
+                        <option key={u.id} value={u.id}>
+                          {u.name}
+                        </option>
+                      ))}
+                    </select>
+                    <button
+                      type="button"
+                      onClick={() => toggleMemberActive(m)}
+                      className="text-xs font-semibold text-ink-secondary hover:text-verde"
+                    >
+                      {m.active ? "Arquivar" : "Reativar"}
+                    </button>
+                  </div>
+                </li>
+              );
+            })}
             {teamMembers.length === 0 && (
               <li className="text-sm text-ink-faint">Nenhum consultor cadastrado ainda.</li>
             )}

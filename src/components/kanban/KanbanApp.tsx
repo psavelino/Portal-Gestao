@@ -38,11 +38,16 @@ export default function KanbanApp({
   isAdmin,
   isClient,
   currentUserId,
+  myTeamUserIds,
 }: {
   canManage: boolean;
   isAdmin: boolean;
   isClient: boolean;
   currentUserId: string;
+  // IDs (users) de quem o usuário logado lidera, direta ou indiretamente
+  // (organograma de squad — users.leader_id). Vazio pra quem não lidera
+  // ninguém; nesse caso o filtro "minha equipe" nem aparece.
+  myTeamUserIds: string[];
 }) {
   const [boards, setBoards] = useState<BoardSummary[]>([]);
   const [activeBoardId, setActiveBoardId] = useState<string | null>(null);
@@ -65,6 +70,12 @@ export default function KanbanApp({
   // efetivo do componente continua sendo "só o quadro liberado pra ele".
   const [showAllBoards, setShowAllBoards] = useState(false);
   const effectiveShowAllBoards = showAllBoards && !isClient;
+  // "Minha equipe": filtra os cards pra só os atribuídos a alguém que o
+  // usuário logado lidera (direta ou indiretamente). Mesma lógica de defesa
+  // em profundidade do showAllBoards — client nunca vê essa opção, e some
+  // sozinho pra quem não lidera ninguém (myTeamUserIds vazio).
+  const [myTeamOnly, setMyTeamOnly] = useState(false);
+  const effectiveMyTeamOnly = myTeamOnly && !isClient && myTeamUserIds.length > 0;
 
   const [quickAddFor, setQuickAddFor] = useState<CardStatus | null>(null);
   const [quickAddTitle, setQuickAddTitle] = useState("");
@@ -155,9 +166,10 @@ export default function KanbanApp({
       if (assigneeFilter && !c.assignees.some((a) => a.id === assigneeFilter)) return false;
       if (priorityFilter && c.priority !== priorityFilter) return false;
       if (search.trim() && !c.title.toLowerCase().includes(search.trim().toLowerCase())) return false;
+      if (effectiveMyTeamOnly && !c.assignees.some((a) => myTeamUserIds.includes(a.id))) return false;
       return true;
     });
-  }, [cards, assigneeFilter, priorityFilter, search]);
+  }, [cards, assigneeFilter, priorityFilter, search, effectiveMyTeamOnly, myTeamUserIds]);
 
   function columnCards(status: CardStatus): CardSummary[] {
     return filteredCards.filter((c) => c.status === status);
@@ -372,13 +384,24 @@ export default function KanbanApp({
             Buscar em todos os quadros
           </label>
         )}
-        {(search || assigneeFilter || priorityFilter) && (
+        {!isClient && myTeamUserIds.length > 0 && (
+          <label className="flex items-center gap-1.5 text-sm text-ink-secondary cursor-pointer">
+            <input
+              type="checkbox"
+              checked={myTeamOnly}
+              onChange={(e) => setMyTeamOnly(e.target.checked)}
+            />
+            Minha equipe
+          </label>
+        )}
+        {(search || assigneeFilter || priorityFilter || myTeamOnly) && (
           <button
             type="button"
             onClick={() => {
               setSearch("");
               setAssigneeFilter("");
               setPriorityFilter("");
+              setMyTeamOnly(false);
             }}
             className="text-xs font-semibold text-ink-secondary hover:text-verde"
           >

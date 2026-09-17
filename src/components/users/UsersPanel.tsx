@@ -28,6 +28,7 @@ export default function UsersPanel({
   const [password, setPassword] = useState("");
   const [role, setRole] = useState<AppRole>("member");
   const [moduleKeys, setModuleKeys] = useState<ModuleKey[]>([]);
+  const [leaderId, setLeaderId] = useState("");
 
   function resetForm() {
     setName("");
@@ -35,6 +36,31 @@ export default function UsersPanel({
     setPassword("");
     setRole("member");
     setModuleKeys([]);
+    setLeaderId("");
+  }
+
+  // Pra cada usuário, quem ele lidera direta ou indiretamente — usado só
+  // pra não deixar escolher, no select de "líder direto" de alguém, uma
+  // pessoa que já está abaixo dela (isso criaria um ciclo no organograma).
+  // O servidor também barra isso (ver /api/users/[id]), esse cálculo aqui
+  // é só pra não deixar a opção nem aparecer no dropdown.
+  function descendantIdsOf(userId: string): Set<string> {
+    const childrenByLeader = new Map<string, string[]>();
+    for (const u of users) {
+      if (!u.leaderId) continue;
+      const list = childrenByLeader.get(u.leaderId) ?? [];
+      list.push(u.id);
+      childrenByLeader.set(u.leaderId, list);
+    }
+    const seen = new Set<string>();
+    const stack = [...(childrenByLeader.get(userId) ?? [])];
+    while (stack.length > 0) {
+      const cur = stack.pop()!;
+      if (seen.has(cur)) continue;
+      seen.add(cur);
+      stack.push(...(childrenByLeader.get(cur) ?? []));
+    }
+    return seen;
   }
 
   async function createUser(e: React.FormEvent) {
@@ -55,6 +81,7 @@ export default function UsersPanel({
           password,
           role,
           moduleKeys: role === "member" ? moduleKeys : [],
+          leaderId: leaderId || null,
         }),
       });
       const data = await res.json();
@@ -213,6 +240,25 @@ export default function UsersPanel({
                 <option value="client">Cliente (externo)</option>
               </select>
             </div>
+            <div className="flex flex-col gap-1 min-w-[170px]">
+              <label className="text-[10px] uppercase tracking-wide text-ink-faint">
+                Líder direto (opcional)
+              </label>
+              <select
+                value={leaderId}
+                onChange={(e) => setLeaderId(e.target.value)}
+                className="border border-border-strong rounded-md px-2.5 py-1.5 text-sm bg-white"
+              >
+                <option value="">Sem líder (topo do squad)</option>
+                {users
+                  .filter((u) => u.active)
+                  .map((u) => (
+                    <option key={u.id} value={u.id}>
+                      {u.name} ({ROLE_LABELS[u.role]})
+                    </option>
+                  ))}
+              </select>
+            </div>
           </div>
 
           <div>
@@ -297,6 +343,22 @@ export default function UsersPanel({
                     <option value="member">Membro</option>
                     <option value="admin">Admin</option>
                     <option value="client">Cliente (externo)</option>
+                  </select>
+                  <select
+                    value={u.leaderId ?? ""}
+                    disabled={busy}
+                    title="Líder direto"
+                    onChange={(e) => patchUser(u.id, { leaderId: e.target.value || null })}
+                    className="text-xs font-medium border border-border-strong rounded-md px-1.5 py-1 bg-white disabled:opacity-50 max-w-[160px]"
+                  >
+                    <option value="">Sem líder direto</option>
+                    {users
+                      .filter((other) => other.id !== u.id && !descendantIdsOf(u.id).has(other.id))
+                      .map((other) => (
+                        <option key={other.id} value={other.id}>
+                          {other.name}
+                        </option>
+                      ))}
                   </select>
                   <button
                     type="button"

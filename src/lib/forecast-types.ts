@@ -5,6 +5,9 @@ export type TeamMember = {
   weeklyCapacity: number;
   active: boolean;
   sortOrder: number;
+  // Conta de login (users.id) da mesma pessoa, se vinculada — usado pro
+  // filtro "minha equipe" (organograma squad leader → techlead → consultor).
+  userId: string | null;
 };
 
 export type Client = {

@@ -15,8 +15,15 @@ create table if not exists users (
   password_hash text not null,
   role          text not null default 'member' check (role in ('admin', 'member', 'client')),
   active        boolean not null default true,   -- desativado = não consegue mais logar
+  -- Líder direto dentro do squad (organograma de projeto, não é permissão
+  -- de sistema): squad leader -> techleads -> consultores. Auto-referência,
+  -- raiz da hierarquia tem leader_id = null. Usado só pro filtro "minha
+  -- equipe" no Kanban/Forecast — não afeta o que cada papel pode fazer.
+  leader_id     uuid references users(id) on delete set null,
   created_at    timestamptz not null default now()
 );
+
+create index if not exists idx_users_leader on users (leader_id);
 
 -- ---------------------------------------------------------------------------
 -- Permissão de acesso a módulos: quais módulos do portal cada usuário pode
@@ -43,8 +50,15 @@ create table if not exists team_members (
   weekly_capacity  numeric(6,2) not null default 40,
   active           boolean not null default true,
   sort_order       integer not null default 0,
+  -- Vincula esta linha da equipe (Forecast) à conta de login da mesma
+  -- pessoa (users) — opcional, mas necessário pro filtro "minha equipe"
+  -- funcionar no Forecast (a hierarquia de liderança vive em users.leader_id).
+  -- Um usuário só pode estar linkado a um consultor por vez (unique).
+  user_id          uuid references users(id) on delete set null,
   created_at       timestamptz not null default now()
 );
+
+create unique index if not exists idx_team_members_user on team_members (user_id) where user_id is not null;
 
 -- ---------------------------------------------------------------------------
 -- Clientes — agrupador comercial. Cada cliente pode ter vários projetos.

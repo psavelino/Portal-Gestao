@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { auth } from "@/auth";
-import { getUserModuleKeys } from "@/lib/users";
+import { getUserModuleKeys, getDescendantUserIds } from "@/lib/users";
 import type { ModuleKey } from "@/lib/modules";
 import { userHasBoardAccess } from "@/lib/boards";
 
@@ -87,4 +87,16 @@ export async function requireForecastAdmin(): Promise<NextResponse | null> {
     );
   }
   return null;
+}
+
+// IDs de todo mundo liderado pelo usuário logado, direta ou indiretamente
+// (organograma de projeto — squad leader → techleads → consultores; ver
+// users.leader_id). Não tem nada a ver com permissão de sistema: é só o
+// conjunto usado pelo filtro "minha equipe" no Kanban e no Forecast.
+// Devolve [] pra quem não lidera ninguém (a maioria dos consultores) —
+// nesse caso a UI simplesmente não mostra o filtro.
+export async function getMyTeamUserIds(): Promise<string[]> {
+  const session = await auth();
+  if (!session?.user?.id) return [];
+  return getDescendantUserIds(session.user.id);
 }

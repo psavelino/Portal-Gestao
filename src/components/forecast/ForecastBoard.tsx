@@ -38,7 +38,17 @@ function borderColorFor(textColor: string): string {
   return textColor === "#FFFFFF" ? "rgba(255,255,255,0.55)" : "rgba(0,0,0,0.35)";
 }
 
-export default function ForecastBoard({ canEdit }: { canEdit: boolean }) {
+export default function ForecastBoard({
+  canEdit,
+  myTeamUserIds,
+}: {
+  canEdit: boolean;
+  // IDs (users) de quem o usuário logado lidera, direta ou indiretamente —
+  // vem do organograma de squad (users.leader_id), não tem nada a ver com
+  // permissão. Vazio pra quem não lidera ninguém (a maioria dos
+  // consultores) — nesse caso o filtro "minha equipe" nem aparece.
+  myTeamUserIds: string[];
+}) {
   const [teamMembers, setTeamMembers] = useState<TeamMember[]>([]);
   const [clients, setClients] = useState<Client[]>([]);
   const [projects, setProjects] = useState<Project[]>([]);
@@ -49,6 +59,7 @@ export default function ForecastBoard({ canEdit }: { canEdit: boolean }) {
   const [manageOpen, setManageOpen] = useState(false);
   const [balanceOpen, setBalanceOpen] = useState(false);
   const [showInactive, setShowInactive] = useState(false);
+  const [myTeamOnly, setMyTeamOnly] = useState(false);
   const [savingKeys, setSavingKeys] = useState<Set<string>>(new Set());
   // Chave do picker "escolher projeto" aberto: `${memberId}|${weekIso}` (célula), ou null.
   const [pickerFor, setPickerFor] = useState<string | null>(null);
@@ -220,7 +231,11 @@ export default function ForecastBoard({ canEdit }: { canEdit: boolean }) {
     closeEditor();
   }
 
-  const visibleMembers = teamMembers.filter((m) => showInactive || m.active);
+  const visibleMembers = teamMembers.filter(
+    (m) =>
+      (showInactive || m.active) &&
+      (!myTeamOnly || (m.userId && myTeamUserIds.includes(m.userId)))
+  );
   const activeClients = clients.filter((c) => c.active);
 
   return (
@@ -325,6 +340,16 @@ export default function ForecastBoard({ canEdit }: { canEdit: boolean }) {
             />
             Mostrar consultores arquivados
           </label>
+          {myTeamUserIds.length > 0 && (
+            <label className="flex items-center gap-2 text-sm text-ink-secondary">
+              <input
+                type="checkbox"
+                checked={myTeamOnly}
+                onChange={(e) => setMyTeamOnly(e.target.checked)}
+              />
+              Minha equipe
+            </label>
+          )}
         </div>
       </div>
 

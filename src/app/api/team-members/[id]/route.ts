@@ -8,6 +8,7 @@ const updateSchema = z.object({
   role: z.string().trim().optional(),
   weeklyCapacity: z.number().positive().max(168).optional(),
   active: z.boolean().optional(),
+  userId: z.string().uuid().nullable().optional(),
 });
 
 export async function PATCH(
@@ -38,18 +39,43 @@ export async function PATCH(
     return NextResponse.json({ error: "Nada para atualizar." }, { status: 400 });
   }
 
-  const rows = await sql`
-    update team_members set
-      name = coalesce(${data.name ?? null}, name),
-      role = coalesce(${data.role ?? null}, role),
-      weekly_capacity = coalesce(${data.weeklyCapacity ?? null}, weekly_capacity),
-      active = coalesce(${data.active ?? null}, active)
-    where id = ${id}
-    returning id, name, role, weekly_capacity::float as "weeklyCapacity", active, sort_order as "sortOrder"
-  `;
+  // userId é tri-state (undefined = não mexe, null = desvincula, string =
+  // vincula) — coalesce() não limpa pra null, por isso é uma query separada
+  // quando a chave veio no payload (mesmo padrão usado em updateUser).
+  try {
+    const rows =
+      data.userId !== undefined
+        ? await sql`
+            update team_members set
+              name = coalesce(${data.name ?? null}, name),
+              role = coalesce(${data.role ?? null}, role),
+              weekly_capacity = coalesce(${data.weeklyCapacity ?? null}, weekly_capacity),
+              active = coalesce(${data.active ?? null}, active),
+              user_id = ${data.userId}
+            where id = ${id}
+            returning id, name, role, weekly_capacity::float as "weeklyCapacity", active, sort_order as "sortOrder", user_id as "userId"
+          `
+        : await sql`
+            update team_members set
+              name = coalesce(${data.name ?? null}, name),
+              role = coalesce(${data.role ?? null}, role),
+              weekly_capacity = coalesce(${data.weeklyCapacity ?? null}, weekly_capacity),
+              active = coalesce(${data.active ?? null}, active)
+            where id = ${id}
+            returning id, name, role, weekly_capacity::float as "weeklyCapacity", active, sort_order as "sortOrder", user_id as "userId"
+          `;
 
-  if (rows.length === 0) {
-    return NextResponse.json({ error: "Consultor não encontrado." }, { status: 404 });
+    if (rows.length === 0) {
+      return NextResponse.json({ error: "Consultor não encontrado." }, { status: 404 });
+    }
+    return NextResponse.json(rows[0]);
+  } catch (err) {
+    if (err && typeof err === "object" && "code" in err && err.code === "23505") {
+      return NextResponse.json(
+        { error: "Essa conta de usuário já está vinculada a outro consultor." },
+        { status: 409 }
+      );
+    }
+    throw err;
   }
-  return NextResponse.json(rows[0]);
 }
