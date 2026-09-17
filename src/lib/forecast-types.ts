@@ -1,13 +1,16 @@
-export type TeamMember = {
-  id: string;
+// Uma linha da grade do Forecast. Não existe mais cadastro próprio de
+// equipe (team_members, removido em 18/09) — a "equipe" é derivada direto
+// da tabela de usuários: entra quem é 'member', ou quem é liderado por
+// alguém (leaderId preenchido). Quem não tem líder e não é 'member' (o
+// squad leader raiz, que só gerencia) fica de fora (ver
+// listForecastRoster() em src/lib/users.ts e GET /api/forecast/roster).
+export type ForecastPerson = {
+  id: string; // users.id
   name: string;
-  role: string | null;
+  jobTitle: string | null;
   weeklyCapacity: number;
   active: boolean;
-  sortOrder: number;
-  // Conta de login (users.id) da mesma pessoa, se vinculada — usado pro
-  // filtro "minha equipe" (organograma squad leader → techlead → consultor).
-  userId: string | null;
+  leaderId: string | null;
 };
 
 export type Client = {
@@ -38,15 +41,15 @@ export type AllocationStatus = "confirmado" | "previsto";
 
 export type Allocation = {
   id: string;
-  teamMemberId: string;
+  userId: string;
   projectId: string;
   weekStart: string; // YYYY-MM-DD
   hours: number;
   status: AllocationStatus;
 };
 
-export function cellKey(teamMemberId: string, projectId: string, weekStart: string) {
-  return `${teamMemberId}|${projectId}|${weekStart}`;
+export function cellKey(userId: string, projectId: string, weekStart: string) {
+  return `${userId}|${projectId}|${weekStart}`;
 }
 
 export function utilClass(pct: number): "good" | "warn" | "bad" {

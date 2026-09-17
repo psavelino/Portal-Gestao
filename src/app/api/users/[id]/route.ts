@@ -21,6 +21,8 @@ const updateSchema = z.object({
   active: z.boolean().optional(),
   resetPassword: z.boolean().optional(),
   leaderId: z.string().uuid().nullable().optional(),
+  weeklyCapacity: z.number().positive().max(168).optional(),
+  jobTitle: z.string().trim().max(80).nullable().optional(),
 });
 
 export async function PATCH(
@@ -105,6 +107,8 @@ export async function PATCH(
       role: data.role,
       active: data.active,
       leaderId: data.leaderId,
+      weeklyCapacity: data.weeklyCapacity,
+      jobTitle: data.jobTitle,
     });
     return NextResponse.json({ ...updated, tempPassword });
   }
@@ -114,6 +118,8 @@ export async function PATCH(
     role: data.role,
     active: data.active,
     leaderId: data.leaderId,
+    weeklyCapacity: data.weeklyCapacity,
+    jobTitle: data.jobTitle,
   });
   if (!updated) {
     return NextResponse.json({ error: "Usuário não encontrado." }, { status: 404 });

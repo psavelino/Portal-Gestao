@@ -17,6 +17,8 @@ export type AppUserWithAccess = Omit<AppUser, "passwordHash"> & {
   createdAt: string;
   moduleKeys: ModuleKey[];
   leaderId: string | null;
+  weeklyCapacity: number;
+  jobTitle: string | null;
 };
 
 export async function getUserByEmail(email: string): Promise<AppUser | null> {
@@ -56,7 +58,9 @@ export async function getUserById(
 
 export async function listUsersWithAccess(): Promise<AppUserWithAccess[]> {
   const users = await sql`
-    select id, name, email, role, active, leader_id as "leaderId", created_at as "createdAt"
+    select id, name, email, role, active, leader_id as "leaderId",
+      weekly_capacity::float as "weeklyCapacity", job_title as "jobTitle",
+      created_at as "createdAt"
     from users
     order by created_at asc
   `;
@@ -89,12 +93,24 @@ export async function adminCreateUser(params: {
   role: AppRole;
   moduleKeys: ModuleKey[];
   leaderId?: string | null;
+  weeklyCapacity?: number;
+  jobTitle?: string | null;
 }): Promise<AppUserWithAccess> {
   const passwordHash = await hashPassword(params.password);
   const rows = await sql`
-    insert into users (name, email, password_hash, role, leader_id)
-    values (${params.name}, ${params.email.toLowerCase().trim()}, ${passwordHash}, ${params.role}, ${params.leaderId ?? null})
-    returning id, name, email, role, active, leader_id as "leaderId", created_at as "createdAt"
+    insert into users (name, email, password_hash, role, leader_id, weekly_capacity, job_title)
+    values (
+      ${params.name},
+      ${params.email.toLowerCase().trim()},
+      ${passwordHash},
+      ${params.role},
+      ${params.leaderId ?? null},
+      ${params.weeklyCapacity ?? 40},
+      ${params.jobTitle ?? null}
+    )
+    returning id, name, email, role, active, leader_id as "leaderId",
+      weekly_capacity::float as "weeklyCapacity", job_title as "jobTitle",
+      created_at as "createdAt"
   `;
   const user = rows[0] as Omit<AppUserWithAccess, "moduleKeys">;
 
@@ -118,32 +134,78 @@ export async function countActiveAdmins(): Promise<number> {
 
 export async function updateUser(
   id: string,
-  data: { name?: string; role?: AppRole; active?: boolean; leaderId?: string | null }
+  data: {
+    name?: string;
+    role?: AppRole;
+    active?: boolean;
+    leaderId?: string | null;
+    weeklyCapacity?: number;
+    jobTitle?: string | null;
+  }
 ): Promise<Omit<AppUserWithAccess, "moduleKeys"> | null> {
-  // leaderId é tri-state (undefined = não mexe, null = remove o líder,
-  // string = define) — coalesce() não dá pra limpar um campo pra null, por
-  // isso o update de leader_id é uma atribuição direta numa query separada
-  // quando a chave veio no payload (mesmo padrão usado em team-members).
-  const rows =
-    data.leaderId !== undefined
-      ? await sql`
-          update users set
-            name = coalesce(${data.name ?? null}, name),
-            role = coalesce(${data.role ?? null}, role),
-            active = coalesce(${data.active ?? null}, active),
-            leader_id = ${data.leaderId}
-          where id = ${id}
-          returning id, name, email, role, active, leader_id as "leaderId", created_at as "createdAt"
-        `
-      : await sql`
-          update users set
-            name = coalesce(${data.name ?? null}, name),
-            role = coalesce(${data.role ?? null}, role),
-            active = coalesce(${data.active ?? null}, active)
-          where id = ${id}
-          returning id, name, email, role, active, leader_id as "leaderId", created_at as "createdAt"
-        `;
+  // name/role/active/weeklyCapacity só precisam de "não mexer" (undefined)
+  // ou um valor novo — coalesce() resolve. leaderId e jobTitle também
+  // precisam aceitar null explícito (desvincular líder / limpar cargo), que
+  // coalesce() não sabe fazer — por isso rodam como updates condicionais à
+  // parte, só quando a chave veio no payload (mesmo padrão usado antes em
+  // team-members). Evita a explosão combinatória de ter uma query pra cada
+  // combinação possível dos dois campos tri-state.
+  await sql`
+    update users set
+      name = coalesce(${data.name ?? null}, name),
+      role = coalesce(${data.role ?? null}, role),
+      active = coalesce(${data.active ?? null}, active),
+      weekly_capacity = coalesce(${data.weeklyCapacity ?? null}, weekly_capacity)
+    where id = ${id}
+  `;
+  if (data.leaderId !== undefined) {
+    await sql`update users set leader_id = ${data.leaderId} where id = ${id}`;
+  }
+  if (data.jobTitle !== undefined) {
+    await sql`update users set job_title = ${data.jobTitle} where id = ${id}`;
+  }
+
+  const rows = await sql`
+    select id, name, email, role, active, leader_id as "leaderId",
+      weekly_capacity::float as "weeklyCapacity", job_title as "jobTitle",
+      created_at as "createdAt"
+    from users
+    where id = ${id}
+  `;
   return (rows[0] as Omit<AppUserWithAccess, "moduleKeys"> | undefined) ?? null;
+}
+
+// A "equipe" do Forecast, derivada direto de users (não existe mais cadastro
+// próprio — ver comentário em ForecastPerson, forecast-types.ts). Regra:
+// entra quem é 'member' OU quem tem leader_id preenchido (é liderado por
+// alguém, mesmo sendo admin/techlead); usuários 'client' nunca entram
+// (o Forecast já era inacessível pra eles, isso não muda); e quem não tem
+// líder e não é 'member' (o squad leader raiz) fica de fora — só gerencia.
+export async function listForecastRoster(): Promise<
+  {
+    id: string;
+    name: string;
+    jobTitle: string | null;
+    weeklyCapacity: number;
+    active: boolean;
+    leaderId: string | null;
+  }[]
+> {
+  const rows = await sql`
+    select id, name, job_title as "jobTitle", weekly_capacity::float as "weeklyCapacity",
+      active, leader_id as "leaderId"
+    from users
+    where role <> 'client' and (role = 'member' or leader_id is not null)
+    order by name asc
+  `;
+  return rows as {
+    id: string;
+    name: string;
+    jobTitle: string | null;
+    weeklyCapacity: number;
+    active: boolean;
+    leaderId: string | null;
+  }[];
 }
 
 // Todos os usuários liderados por `userId`, direta ou indiretamente

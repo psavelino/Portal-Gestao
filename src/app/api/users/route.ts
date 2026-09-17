@@ -26,6 +26,8 @@ const createSchema = z.object({
   role: z.enum(["admin", "member", "client"]).default("member"),
   moduleKeys: z.array(z.enum(MODULE_KEYS)).default([]),
   leaderId: z.string().uuid().nullable().optional(),
+  weeklyCapacity: z.number().positive().max(168).optional(),
+  jobTitle: z.string().trim().max(80).nullable().optional(),
 });
 
 export async function POST(request: Request) {

@@ -22,7 +22,7 @@ export async function GET(request: Request) {
   const rows = await sql`
     select
       id,
-      team_member_id as "teamMemberId",
+      user_id as "userId",
       project_id as "projectId",
       to_char(week_start, 'YYYY-MM-DD') as "weekStart",
       hours::float as hours,
@@ -34,7 +34,7 @@ export async function GET(request: Request) {
 }
 
 const putSchema = z.object({
-  teamMemberId: z.string().uuid(),
+  userId: z.string().uuid(),
   projectId: z.string().uuid(),
   weekStart: dateSchema,
   hours: z.number().min(0).max(168),
@@ -59,12 +59,12 @@ export async function PUT(request: Request) {
       { status: 400 }
     );
   }
-  const { teamMemberId, projectId, weekStart, hours, status } = parsed.data;
+  const { userId, projectId, weekStart, hours, status } = parsed.data;
 
   if (hours <= 0) {
     await sql`
       delete from allocations
-      where team_member_id = ${teamMemberId}
+      where user_id = ${userId}
         and project_id = ${projectId}
         and week_start = ${weekStart}
     `;
@@ -72,13 +72,13 @@ export async function PUT(request: Request) {
   }
 
   const rows = await sql`
-    insert into allocations (team_member_id, project_id, week_start, hours, status)
-    values (${teamMemberId}, ${projectId}, ${weekStart}, ${hours}, ${status})
-    on conflict (team_member_id, project_id, week_start)
+    insert into allocations (user_id, project_id, week_start, hours, status)
+    values (${userId}, ${projectId}, ${weekStart}, ${hours}, ${status})
+    on conflict (user_id, project_id, week_start)
     do update set hours = excluded.hours, status = excluded.status, updated_at = now()
     returning
       id,
-      team_member_id as "teamMemberId",
+      user_id as "userId",
       project_id as "projectId",
       to_char(week_start, 'YYYY-MM-DD') as "weekStart",
       hours::float as hours,

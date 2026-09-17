@@ -3,7 +3,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { addWeeks } from "date-fns";
 import { mondayOf, isoDate, shortLabel, weekRange } from "@/lib/weeks";
-import type { TeamMember, Client, Project, Allocation, AllocationStatus } from "@/lib/forecast-types";
+import type { ForecastPerson, Client, Project, Allocation, AllocationStatus } from "@/lib/forecast-types";
 import { utilClass, CONTRACT_TYPE_META } from "@/lib/forecast-types";
 import ManagePanel from "./ManagePanel";
 import ProjectBalancePanel from "./ProjectBalancePanel";
@@ -49,7 +49,7 @@ export default function ForecastBoard({
   // consultores) — nesse caso o filtro "minha equipe" nem aparece.
   myTeamUserIds: string[];
 }) {
-  const [teamMembers, setTeamMembers] = useState<TeamMember[]>([]);
+  const [people, setPeople] = useState<ForecastPerson[]>([]);
   const [clients, setClients] = useState<Client[]>([]);
   const [projects, setProjects] = useState<Project[]>([]);
   const [allocations, setAllocations] = useState<Allocation[]>([]);
@@ -73,13 +73,13 @@ export default function ForecastBoard({
   useEffect(() => {
     (async () => {
       try {
-        const [tmRes, clRes, prRes] = await Promise.all([
-          fetch("/api/team-members"),
+        const [peopleRes, clRes, prRes] = await Promise.all([
+          fetch("/api/forecast/roster"),
           fetch("/api/clients"),
           fetch("/api/projects"),
         ]);
-        if (!tmRes.ok || !clRes.ok || !prRes.ok) throw new Error();
-        setTeamMembers(await tmRes.json());
+        if (!peopleRes.ok || !clRes.ok || !prRes.ok) throw new Error();
+        setPeople(await peopleRes.json());
         setClients(await clRes.json());
         setProjects(await prRes.json());
       } catch {
@@ -144,8 +144,8 @@ export default function ForecastBoard({
     const map = new Map<string, Map<string, WeekEntry[]>>();
     for (const a of allocations) {
       if (a.hours <= 0) continue;
-      if (!map.has(a.teamMemberId)) map.set(a.teamMemberId, new Map());
-      const wmap = map.get(a.teamMemberId)!;
+      if (!map.has(a.userId)) map.set(a.userId, new Map());
+      const wmap = map.get(a.userId)!;
       if (!wmap.has(a.weekStart)) wmap.set(a.weekStart, []);
       wmap.get(a.weekStart)!.push({ projectId: a.projectId, hours: a.hours, status: a.status });
     }
@@ -180,18 +180,18 @@ export default function ForecastBoard({
       const res = await fetch("/api/allocations", {
         method: "PUT",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ teamMemberId: memberId, projectId, weekStart: weekIso, hours, status }),
+        body: JSON.stringify({ userId: memberId, projectId, weekStart: weekIso, hours, status }),
       });
       const data = await res.json();
       if (!res.ok) throw new Error(data.error || "Erro ao salvar horas.");
       setAllocations((prev) => {
         const filtered = prev.filter(
-          (a) => !(a.teamMemberId === memberId && a.projectId === projectId && a.weekStart === weekIso)
+          (a) => !(a.userId === memberId && a.projectId === projectId && a.weekStart === weekIso)
         );
         if (hours > 0) {
           filtered.push({
             id: data.id ?? key,
-            teamMemberId: memberId,
+            userId: memberId,
             projectId,
             weekStart: weekIso,
             hours,
@@ -231,10 +231,8 @@ export default function ForecastBoard({
     closeEditor();
   }
 
-  const visibleMembers = teamMembers.filter(
-    (m) =>
-      (showInactive || m.active) &&
-      (!myTeamOnly || (m.userId && myTeamUserIds.includes(m.userId)))
+  const visibleMembers = people.filter(
+    (p) => (showInactive || p.active) && (!myTeamOnly || myTeamUserIds.includes(p.id))
   );
   const activeClients = clients.filter((c) => c.active);
 
@@ -278,10 +276,8 @@ export default function ForecastBoard({
       {canEdit && manageOpen && (
         <div className="bg-surface border border-border rounded-xl p-5 shadow-[0_1px_2px_rgba(48,48,48,0.06),0_8px_24px_-12px_rgba(48,48,48,0.18)] mb-6">
           <ManagePanel
-            teamMembers={teamMembers}
             clients={clients}
             projects={projects}
-            setTeamMembers={setTeamMembers}
             setClients={setClients}
             setProjects={setProjects}
           />
@@ -394,8 +390,8 @@ export default function ForecastBoard({
             {visibleMembers.length === 0 && (
               <tr>
                 <td colSpan={weeks.length + 2} className="px-4 py-8 text-center text-sm text-ink-faint">
-                  {teamMembers.length === 0
-                    ? 'Nenhum consultor cadastrado. Clique em "Gerenciar equipe, clientes e projetos" para começar.'
+                  {people.length === 0
+                    ? 'Nenhum consultor com acesso ao Forecast ainda. Cadastre a pessoa em "Usuários" como Membro, ou defina um líder direto para ela — a partir daí entra aqui automaticamente.'
                     : "Nenhum consultor ativo. Marque a opção acima para ver os arquivados."}
                 </td>
               </tr>
@@ -410,8 +406,8 @@ export default function ForecastBoard({
                 <tr key={member.id} className="border-t border-border align-top">
                   <td className="px-4 py-3 font-semibold text-ink">
                     {member.name}
-                    {member.role && (
-                      <span className="block font-normal text-ink-faint text-xs mt-0.5">{member.role}</span>
+                    {member.jobTitle && (
+                      <span className="block font-normal text-ink-faint text-xs mt-0.5">{member.jobTitle}</span>
                     )}
                     {!member.active && (
                       <span className="block mt-0.5 text-[10px] uppercase tracking-wide text-ink-faint">

@@ -1,32 +1,23 @@
 "use client";
 
-import { useEffect, useState } from "react";
-import type { TeamMember, Client, Project, ContractType, ProjectStatus } from "@/lib/forecast-types";
+import { useState } from "react";
+import type { Client, Project, ContractType, ProjectStatus } from "@/lib/forecast-types";
 import { CONTRACT_TYPE_META } from "@/lib/forecast-types";
 
 const CONTRACT_TYPES: ContractType[] = ["pacote_horas", "cmc", "outsourcing"];
 const PROJECT_STATUSES: ProjectStatus[] = ["ativo", "pausado", "encerrado"];
 
-type LinkableUser = { id: string; name: string; role: "admin" | "member" | "client"; active: boolean };
-
 export default function ManagePanel({
-  teamMembers,
   clients,
   projects,
-  setTeamMembers,
   setClients,
   setProjects,
 }: {
-  teamMembers: TeamMember[];
   clients: Client[];
   projects: Project[];
-  setTeamMembers: React.Dispatch<React.SetStateAction<TeamMember[]>>;
   setClients: React.Dispatch<React.SetStateAction<Client[]>>;
   setProjects: React.Dispatch<React.SetStateAction<Project[]>>;
 }) {
-  const [newMemberName, setNewMemberName] = useState("");
-  const [newMemberRole, setNewMemberRole] = useState("");
-  const [newMemberCapacity, setNewMemberCapacity] = useState("40");
   const [newClientName, setNewClientName] = useState("");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -38,47 +29,6 @@ export default function ManagePanel({
   const [cmcMonthlyHours, setCmcMonthlyHours] = useState("");
   const [cmcStartMonth, setCmcStartMonth] = useState("");
   const [outsourcingPeople, setOutsourcingPeople] = useState("");
-
-  // Contas de login (users) candidatas a vincular a um consultor do
-  // Forecast — carregado só pra alimentar o select "conta vinculada" de
-  // cada linha da equipe (ver seção "Vincular consultor a usuário" no doc
-  // do projeto). Rota é admin-only, mas ManagePanel só existe dentro do
-  // gate canEdit (admin), então a chamada sempre vem de quem pode ver isso.
-  const [linkableUsers, setLinkableUsers] = useState<LinkableUser[]>([]);
-  useEffect(() => {
-    fetch("/api/users")
-      .then((r) => (r.ok ? r.json() : []))
-      .then((data: LinkableUser[]) => setLinkableUsers(data))
-      .catch(() => {});
-  }, []);
-
-  async function addMember(e: React.FormEvent) {
-    e.preventDefault();
-    if (!newMemberName.trim()) return;
-    setBusy(true);
-    setError(null);
-    try {
-      const res = await fetch("/api/team-members", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          name: newMemberName.trim(),
-          role: newMemberRole.trim() || undefined,
-          weeklyCapacity: Number(newMemberCapacity) || 40,
-        }),
-      });
-      const data = await res.json();
-      if (!res.ok) throw new Error(data.error || "Erro ao adicionar consultor.");
-      setTeamMembers((prev) => [...prev, data]);
-      setNewMemberName("");
-      setNewMemberRole("");
-      setNewMemberCapacity("40");
-    } catch (err) {
-      setError(err instanceof Error ? err.message : "Erro ao adicionar consultor.");
-    } finally {
-      setBusy(false);
-    }
-  }
 
   async function addClient(e: React.FormEvent) {
     e.preventDefault();
@@ -97,42 +47,6 @@ export default function ManagePanel({
       setNewClientName("");
     } catch (err) {
       setError(err instanceof Error ? err.message : "Erro ao adicionar cliente.");
-    } finally {
-      setBusy(false);
-    }
-  }
-
-  async function toggleMemberActive(m: TeamMember) {
-    setBusy(true);
-    try {
-      const res = await fetch(`/api/team-members/${m.id}`, {
-        method: "PATCH",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ active: !m.active }),
-      });
-      const data = await res.json();
-      if (res.ok) {
-        setTeamMembers((prev) => prev.map((x) => (x.id === m.id ? data : x)));
-      }
-    } finally {
-      setBusy(false);
-    }
-  }
-
-  async function linkMemberUser(m: TeamMember, userId: string | null) {
-    setBusy(true);
-    setError(null);
-    try {
-      const res = await fetch(`/api/team-members/${m.id}`, {
-        method: "PATCH",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ userId }),
-      });
-      const data = await res.json();
-      if (!res.ok) throw new Error(data.error || "Erro ao vincular conta.");
-      setTeamMembers((prev) => prev.map((x) => (x.id === m.id ? data : x)));
-    } catch (err) {
-      setError(err instanceof Error ? err.message : "Erro ao vincular conta.");
     } finally {
       setBusy(false);
     }
@@ -221,136 +135,59 @@ export default function ManagePanel({
 
   return (
     <div className="flex flex-col gap-6">
-      <div className="grid grid-cols-1 md:grid-cols-2 gap-5">
-        <div>
-          <h3 className="text-[13px] font-semibold uppercase tracking-wide text-ink-secondary mb-3">
-            Equipe
-          </h3>
-          <form onSubmit={addMember} className="flex flex-wrap gap-2 mb-3">
-            <input
-              placeholder="Nome"
-              value={newMemberName}
-              onChange={(e) => setNewMemberName(e.target.value)}
-              className="border border-border-strong rounded-md px-2.5 py-1.5 text-sm bg-white flex-1 min-w-[140px]"
-            />
-            <input
-              placeholder="Função (opcional)"
-              value={newMemberRole}
-              onChange={(e) => setNewMemberRole(e.target.value)}
-              className="border border-border-strong rounded-md px-2.5 py-1.5 text-sm bg-white w-36"
-            />
-            <input
-              type="number"
-              min={1}
-              max={168}
-              title="Capacidade semanal (h)"
-              value={newMemberCapacity}
-              onChange={(e) => setNewMemberCapacity(e.target.value)}
-              className="border border-border-strong rounded-md px-2.5 py-1.5 text-sm bg-white w-20 mono"
-            />
-            <button
-              type="submit"
-              disabled={busy}
-              className="bg-verde text-white text-sm font-semibold px-3 py-1.5 rounded-md hover:opacity-90 disabled:opacity-50"
-            >
-              + Adicionar
-            </button>
-          </form>
-          <ul className="flex flex-col gap-1.5">
-            {teamMembers.map((m) => {
-              const linkedElsewhere = new Set(
-                teamMembers.filter((x) => x.id !== m.id && x.userId).map((x) => x.userId as string)
-              );
-              const userOptions = linkableUsers.filter(
-                (u) => u.active && !linkedElsewhere.has(u.id)
-              );
-              return (
-                <li
-                  key={m.id}
-                  className="flex items-center justify-between gap-2 text-sm bg-surface-alt rounded-md px-3 py-1.5 flex-wrap"
-                >
-                  <span className={m.active ? "text-ink" : "text-ink-faint line-through"}>
-                    {m.name}
-                    {m.role ? ` · ${m.role}` : ""} · {m.weeklyCapacity}h/sem
-                  </span>
-                  <div className="flex items-center gap-2">
-                    <select
-                      value={m.userId ?? ""}
-                      disabled={busy}
-                      title="Conta de login vinculada (pra essa pessoa poder ser filtrada como 'minha equipe')"
-                      onChange={(e) => linkMemberUser(m, e.target.value || null)}
-                      className="text-xs border border-border-strong rounded-md px-1.5 py-1 bg-white disabled:opacity-50 max-w-[150px]"
-                    >
-                      <option value="">Sem conta vinculada</option>
-                      {userOptions.map((u) => (
-                        <option key={u.id} value={u.id}>
-                          {u.name}
-                        </option>
-                      ))}
-                    </select>
-                    <button
-                      type="button"
-                      onClick={() => toggleMemberActive(m)}
-                      className="text-xs font-semibold text-ink-secondary hover:text-verde"
-                    >
-                      {m.active ? "Arquivar" : "Reativar"}
-                    </button>
-                  </div>
-                </li>
-              );
-            })}
-            {teamMembers.length === 0 && (
-              <li className="text-sm text-ink-faint">Nenhum consultor cadastrado ainda.</li>
-            )}
-          </ul>
-        </div>
-
-        <div>
-          <h3 className="text-[13px] font-semibold uppercase tracking-wide text-ink-secondary mb-3">
+      <div>
+        <div className="flex items-center justify-between gap-3 mb-3">
+          <h3 className="text-[13px] font-semibold uppercase tracking-wide text-ink-secondary">
             Clientes
           </h3>
-          <form onSubmit={addClient} className="flex flex-wrap gap-2 mb-3">
-            <input
-              placeholder="Nome do cliente"
-              value={newClientName}
-              onChange={(e) => setNewClientName(e.target.value)}
-              className="border border-border-strong rounded-md px-2.5 py-1.5 text-sm bg-white flex-1 min-w-[140px]"
-            />
-            <button
-              type="submit"
-              disabled={busy}
-              className="bg-verde text-white text-sm font-semibold px-3 py-1.5 rounded-md hover:opacity-90 disabled:opacity-50"
-            >
-              + Adicionar
-            </button>
-          </form>
-          <ul className="flex flex-col gap-1.5">
-            {clients.map((c) => (
-              <li
-                key={c.id}
-                className="flex items-center justify-between gap-2 text-sm bg-surface-alt rounded-md px-3 py-1.5"
-              >
-                <span className={`flex items-center gap-2 ${c.active ? "text-ink" : "text-ink-faint line-through"}`}>
-                  <span
-                    className="w-2.5 h-2.5 rounded-sm shrink-0"
-                    style={{ background: c.color }}
-                  />
-                  {c.name}
-                </span>
-                <button
-                  type="button"
-                  onClick={() => toggleClientActive(c)}
-                  className="text-xs font-semibold text-ink-secondary hover:text-verde"
-                >
-                  {c.active ? "Arquivar" : "Reativar"}
-                </button>
-              </li>
-            ))}
-            {clients.length === 0 && (
-              <li className="text-sm text-ink-faint">Nenhum cliente cadastrado ainda.</li>
-            )}
-          </ul>
+          <a
+            href="/usuarios"
+            className="text-xs font-semibold text-ink-secondary hover:text-verde"
+          >
+            Gerenciar equipe (capacidade, cargo e líder direto) em Usuários →
+          </a>
         </div>
+        <form onSubmit={addClient} className="flex flex-wrap gap-2 mb-3">
+          <input
+            placeholder="Nome do cliente"
+            value={newClientName}
+            onChange={(e) => setNewClientName(e.target.value)}
+            className="border border-border-strong rounded-md px-2.5 py-1.5 text-sm bg-white flex-1 min-w-[140px]"
+          />
+          <button
+            type="submit"
+            disabled={busy}
+            className="bg-verde text-white text-sm font-semibold px-3 py-1.5 rounded-md hover:opacity-90 disabled:opacity-50"
+          >
+            + Adicionar
+          </button>
+        </form>
+        <ul className="flex flex-col gap-1.5 max-w-xl">
+          {clients.map((c) => (
+            <li
+              key={c.id}
+              className="flex items-center justify-between gap-2 text-sm bg-surface-alt rounded-md px-3 py-1.5"
+            >
+              <span className={`flex items-center gap-2 ${c.active ? "text-ink" : "text-ink-faint line-through"}`}>
+                <span
+                  className="w-2.5 h-2.5 rounded-sm shrink-0"
+                  style={{ background: c.color }}
+                />
+                {c.name}
+              </span>
+              <button
+                type="button"
+                onClick={() => toggleClientActive(c)}
+                className="text-xs font-semibold text-ink-secondary hover:text-verde"
+              >
+                {c.active ? "Arquivar" : "Reativar"}
+              </button>
+            </li>
+          ))}
+          {clients.length === 0 && (
+            <li className="text-sm text-ink-faint">Nenhum cliente cadastrado ainda.</li>
+          )}
+        </ul>
       </div>
 
       <div className="border-t border-border pt-5">

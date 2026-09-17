@@ -29,6 +29,8 @@ export default function UsersPanel({
   const [role, setRole] = useState<AppRole>("member");
   const [moduleKeys, setModuleKeys] = useState<ModuleKey[]>([]);
   const [leaderId, setLeaderId] = useState("");
+  const [jobTitle, setJobTitle] = useState("");
+  const [weeklyCapacity, setWeeklyCapacity] = useState("40");
 
   function resetForm() {
     setName("");
@@ -37,6 +39,8 @@ export default function UsersPanel({
     setRole("member");
     setModuleKeys([]);
     setLeaderId("");
+    setJobTitle("");
+    setWeeklyCapacity("40");
   }
 
   // Pra cada usuário, quem ele lidera direta ou indiretamente — usado só
@@ -82,6 +86,8 @@ export default function UsersPanel({
           role,
           moduleKeys: role === "member" ? moduleKeys : [],
           leaderId: leaderId || null,
+          jobTitle: jobTitle.trim() || null,
+          weeklyCapacity: Number(weeklyCapacity) || 40,
         }),
       });
       const data = await res.json();
@@ -259,6 +265,30 @@ export default function UsersPanel({
                   ))}
               </select>
             </div>
+            <div className="flex flex-col gap-1 min-w-[160px]">
+              <label className="text-[10px] uppercase tracking-wide text-ink-faint">
+                Cargo (opcional)
+              </label>
+              <input
+                placeholder="ex: Senior, Consultor…"
+                value={jobTitle}
+                onChange={(e) => setJobTitle(e.target.value)}
+                className="border border-border-strong rounded-md px-2.5 py-1.5 text-sm bg-white"
+              />
+            </div>
+            <div className="flex flex-col gap-1 min-w-[110px]">
+              <label className="text-[10px] uppercase tracking-wide text-ink-faint">
+                Capacidade sem. (h)
+              </label>
+              <input
+                type="number"
+                min={1}
+                max={168}
+                value={weeklyCapacity}
+                onChange={(e) => setWeeklyCapacity(e.target.value)}
+                className="border border-border-strong rounded-md px-2.5 py-1.5 text-sm bg-white mono"
+              />
+            </div>
           </div>
 
           <div>
@@ -344,6 +374,32 @@ export default function UsersPanel({
                     <option value="admin">Admin</option>
                     <option value="client">Cliente (externo)</option>
                   </select>
+                  <input
+                    key={`title-${u.id}-${u.jobTitle ?? ""}`}
+                    defaultValue={u.jobTitle ?? ""}
+                    disabled={busy}
+                    placeholder="Cargo"
+                    title="Cargo (exibido no Forecast)"
+                    onBlur={(e) => {
+                      const v = e.target.value.trim();
+                      if (v !== (u.jobTitle ?? "")) patchUser(u.id, { jobTitle: v || null });
+                    }}
+                    className="text-xs border border-border-strong rounded-md px-1.5 py-1 bg-white disabled:opacity-50 w-24"
+                  />
+                  <input
+                    key={`cap-${u.id}-${u.weeklyCapacity}`}
+                    type="number"
+                    min={1}
+                    max={168}
+                    defaultValue={u.weeklyCapacity}
+                    disabled={busy}
+                    title="Capacidade semanal (h) — usada no Forecast"
+                    onBlur={(e) => {
+                      const v = Number(e.target.value);
+                      if (v > 0 && v !== u.weeklyCapacity) patchUser(u.id, { weeklyCapacity: v });
+                    }}
+                    className="text-xs border border-border-strong rounded-md px-1.5 py-1 bg-white disabled:opacity-50 w-16 mono"
+                  />
                   <select
                     value={u.leaderId ?? ""}
                     disabled={busy}

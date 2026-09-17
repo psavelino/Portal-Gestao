@@ -20,6 +20,15 @@ create table if not exists users (
   -- raiz da hierarquia tem leader_id = null. Usado só pro filtro "minha
   -- equipe" no Kanban/Forecast — não afeta o que cada papel pode fazer.
   leader_id     uuid references users(id) on delete set null,
+  -- Capacidade semanal (h) e cargo exibidos na grade do Forecast. Vivem em
+  -- users desde 18/09 (antes viviam no cadastro próprio de equipe,
+  -- team_members, removido) — a "equipe" do Forecast passou a ser derivada
+  -- direto daqui (ver listForecastRoster() em src/lib/users.ts): entra na
+  -- lista quem é 'member', ou quem tem leader_id preenchido (é liderado por
+  -- alguém). Quem não tem líder e não é 'member' (o squad leader raiz, ex.:
+  -- o próprio Paulo) fica de fora — só gerencia, não é alocado.
+  weekly_capacity numeric(6,2) not null default 40,
+  job_title       text,
   created_at    timestamptz not null default now()
 );
 
@@ -39,26 +48,6 @@ create table if not exists user_module_access (
   created_at  timestamptz not null default now(),
   primary key (user_id, module_key)
 );
-
--- ---------------------------------------------------------------------------
--- Equipe (consultores que entram no forecast)
--- ---------------------------------------------------------------------------
-create table if not exists team_members (
-  id               uuid primary key default gen_random_uuid(),
-  name             text not null,
-  role             text,                          -- ex: "Consultor", "Dev", "Delivery Manager"
-  weekly_capacity  numeric(6,2) not null default 40,
-  active           boolean not null default true,
-  sort_order       integer not null default 0,
-  -- Vincula esta linha da equipe (Forecast) à conta de login da mesma
-  -- pessoa (users) — opcional, mas necessário pro filtro "minha equipe"
-  -- funcionar no Forecast (a hierarquia de liderança vive em users.leader_id).
-  -- Um usuário só pode estar linkado a um consultor por vez (unique).
-  user_id          uuid references users(id) on delete set null,
-  created_at       timestamptz not null default now()
-);
-
-create unique index if not exists idx_team_members_user on team_members (user_id) where user_id is not null;
 
 -- ---------------------------------------------------------------------------
 -- Clientes — agrupador comercial. Cada cliente pode ter vários projetos.
@@ -101,7 +90,7 @@ create index if not exists idx_projects_client on projects (client_id);
 -- ---------------------------------------------------------------------------
 create table if not exists allocations (
   id             uuid primary key default gen_random_uuid(),
-  team_member_id uuid not null references team_members(id) on delete cascade,
+  user_id        uuid not null references users(id) on delete cascade,
   project_id     uuid not null references projects(id) on delete cascade,
   week_start     date not null,                 -- sempre uma segunda-feira
   hours          numeric(6,2) not null default 0,
@@ -109,11 +98,11 @@ create table if not exists allocations (
   note           text,
   created_at     timestamptz not null default now(),
   updated_at     timestamptz not null default now(),
-  unique (team_member_id, project_id, week_start)
+  unique (user_id, project_id, week_start)
 );
 
 create index if not exists idx_allocations_week on allocations (week_start);
-create index if not exists idx_allocations_member on allocations (team_member_id);
+create index if not exists idx_allocations_user on allocations (user_id);
 create index if not exists idx_allocations_project on allocations (project_id);
 
 -- ---------------------------------------------------------------------------
