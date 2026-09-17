@@ -2,18 +2,22 @@
 
 export const CARD_STATUSES = [
   "backlog",
-  "a_fazer",
-  "em_andamento",
-  "em_revisao",
+  "mapeamento_estimativa",
+  "em_desenvolvimento",
+  "validacao",
+  "impedido",
+  "go_live",
   "concluido",
 ] as const;
 export type CardStatus = (typeof CARD_STATUSES)[number];
 
 export const CARD_STATUS_LABELS: Record<CardStatus, string> = {
-  backlog: "Backlog",
-  a_fazer: "A fazer",
-  em_andamento: "Em andamento",
-  em_revisao: "Em revisão",
+  backlog: "Backlog de atividade",
+  mapeamento_estimativa: "Mapear/estimativa",
+  em_desenvolvimento: "Em desenvolvimento",
+  validacao: "Validação",
+  impedido: "Impedido",
+  go_live: "Go-live",
   concluido: "Concluído",
 };
 

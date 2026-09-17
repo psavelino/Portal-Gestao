@@ -55,9 +55,18 @@ export default function KanbanApp({
   const [search, setSearch] = useState("");
   const [assigneeFilter, setAssigneeFilter] = useState("");
   const [priorityFilter, setPriorityFilter] = useState<CardPriority | "">("");
+  // Quando ligado, ignora a aba selecionada e traz os cards de TODOS os
+  // quadros visíveis pro usuário, agrupados nas mesmas caixas de status.
+  const [showAllBoards, setShowAllBoards] = useState(false);
 
   const [quickAddFor, setQuickAddFor] = useState<CardStatus | null>(null);
   const [quickAddTitle, setQuickAddTitle] = useState("");
+
+  const boardsById = useMemo(() => {
+    const map = new Map<string, BoardSummary>();
+    for (const b of boards) map.set(b.id, b);
+    return map;
+  }, [boards]);
 
   useEffect(() => {
     (async () => {
@@ -80,8 +89,34 @@ export default function KanbanApp({
   }, []);
 
   useEffect(() => {
+    if (showAllBoards) {
+      if (boards.length === 0) {
+        // eslint-disable-next-line react-hooks/set-state-in-effect
+        setCards([]);
+        return;
+      }
+      let cancelled = false;
+      setLoadingCards(true);
+      Promise.all(
+        boards.map((b) =>
+          fetch(`/api/cards?boardId=${b.id}`).then((r) => (r.ok ? r.json() : []))
+        )
+      )
+        .then((lists: CardSummary[][]) => {
+          if (!cancelled) setCards(lists.flat());
+        })
+        .catch(() => {
+          if (!cancelled) setError("Não foi possível carregar os cards de todos os quadros.");
+        })
+        .finally(() => {
+          if (!cancelled) setLoadingCards(false);
+        });
+      return () => {
+        cancelled = true;
+      };
+    }
+
     if (!activeBoardId) {
-      // eslint-disable-next-line react-hooks/set-state-in-effect
       setCards([]);
       return;
     }
@@ -104,7 +139,7 @@ export default function KanbanApp({
     return () => {
       cancelled = true;
     };
-  }, [activeBoardId]);
+  }, [activeBoardId, showAllBoards, boards]);
 
   const activeBoard = boards.find((b) => b.id === activeBoardId) ?? null;
 
@@ -134,7 +169,32 @@ export default function KanbanApp({
     }
   }
 
+  // Modo "todos os quadros": os cards arrastados podem ser de quadros
+  // diferentes, então não dá pra reescrever um `sort_order` único pra
+  // coluna (ele é por quadro). Aqui só muda o status do card arrastado e
+  // salva via PATCH simples — sem reordenação fina entre quadros.
+  async function moveCardCrossBoard(cardId: string, targetStatus: CardStatus) {
+    const dragged = cards.find((c) => c.id === cardId);
+    if (!dragged || dragged.status === targetStatus) return;
+    setCards((prev) => prev.map((c) => (c.id === cardId ? { ...c, status: targetStatus } : c)));
+    try {
+      const res = await fetch(`/api/cards/${cardId}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ status: targetStatus }),
+      });
+      if (!res.ok) throw new Error();
+    } catch {
+      setError("Não foi possível mover o card — recarregue a página.");
+    }
+  }
+
   function moveCard(cardId: string, targetStatus: CardStatus, beforeCardId: string | null) {
+    if (showAllBoards) {
+      void moveCardCrossBoard(cardId, targetStatus);
+      return;
+    }
+
     const dragged = cards.find((c) => c.id === cardId);
     if (!dragged || (dragged.status === targetStatus && beforeCardId === cardId)) return;
 
@@ -245,9 +305,12 @@ export default function KanbanApp({
           <button
             key={b.id}
             type="button"
-            onClick={() => setActiveBoardId(b.id)}
+            onClick={() => {
+              setActiveBoardId(b.id);
+              setShowAllBoards(false);
+            }}
             className={`shrink-0 flex items-center gap-2 px-4 py-2.5 text-sm font-semibold border-b-2 -mb-px transition-colors ${
-              b.id === activeBoardId
+              !showAllBoards && b.id === activeBoardId
                 ? "border-verde text-ink"
                 : "border-transparent text-ink-secondary hover:text-ink"
             }`}
@@ -292,6 +355,14 @@ export default function KanbanApp({
             </option>
           ))}
         </select>
+        <label className="flex items-center gap-1.5 text-sm text-ink-secondary cursor-pointer">
+          <input
+            type="checkbox"
+            checked={showAllBoards}
+            onChange={(e) => setShowAllBoards(e.target.checked)}
+          />
+          Buscar em todos os quadros
+        </label>
         {(search || assigneeFilter || priorityFilter) && (
           <button
             type="button"
@@ -305,7 +376,7 @@ export default function KanbanApp({
             Limpar filtros
           </button>
         )}
-        {activeBoard?.description && (
+        {!showAllBoards && activeBoard?.description && (
           <span className="text-xs text-ink-faint ml-auto">{activeBoard.description}</span>
         )}
       </div>
@@ -313,14 +384,14 @@ export default function KanbanApp({
       {loadingCards ? (
         <div className="text-sm text-ink-faint py-10 text-center">Carregando cards…</div>
       ) : (
-        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-4">
+        <div className="flex gap-4 overflow-x-auto pb-2">
           {CARD_STATUSES.map((status) => {
             const list = columnCards(status);
             return (
               <div
                 key={status}
                 data-status={status}
-                className="bg-surface-alt border border-border rounded-xl p-3 flex flex-col gap-2.5 min-h-[200px]"
+                className="bg-surface-alt border border-border rounded-xl p-3 flex flex-col gap-2.5 min-h-[200px] w-[260px] shrink-0"
                 onDragOver={(e) => {
                   if (canManage) e.preventDefault();
                 }}
@@ -377,6 +448,18 @@ export default function KanbanApp({
                         </span>
                       </div>
 
+                      {showAllBoards && boardsById.get(card.boardId) && (
+                        <div className="flex items-center gap-1.5 -mt-1">
+                          <span
+                            className="w-1.5 h-1.5 rounded-full shrink-0"
+                            style={{ background: boardsById.get(card.boardId)!.clientColor }}
+                          />
+                          <span className="text-[10px] text-ink-faint truncate">
+                            {boardsById.get(card.boardId)!.clientName}
+                          </span>
+                        </div>
+                      )}
+
                       <div className="flex items-center justify-between gap-2 flex-wrap">
                         <div className="flex items-center gap-1.5 flex-wrap">
                           {card.dueDate && (
@@ -420,7 +503,14 @@ export default function KanbanApp({
                   ))}
                 </div>
 
+                {canManage && showAllBoards && (
+                  <span className="text-[11px] text-ink-faint px-1">
+                    Desmarque &quot;todos os quadros&quot; pra criar um card
+                  </span>
+                )}
+
                 {canManage &&
+                  !showAllBoards &&
                   (quickAddFor === status ? (
                     <form
                       onSubmit={(e) => {

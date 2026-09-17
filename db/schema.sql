@@ -140,8 +140,11 @@ create table if not exists cards (
   board_id     uuid not null references boards(id) on delete cascade,
   title        text not null,
   description  text,
-  status       text not null default 'a_fazer'
-                 check (status in ('backlog', 'a_fazer', 'em_andamento', 'em_revisao', 'concluido')),
+  status       text not null default 'backlog'
+                 check (status in (
+                   'backlog', 'mapeamento_estimativa', 'em_desenvolvimento',
+                   'validacao', 'impedido', 'go_live', 'concluido'
+                 )),
   priority     text not null default 'media' check (priority in ('baixa', 'media', 'alta', 'urgente')),
   due_date     date,
   sort_order   integer not null default 0,      -- ordenação dentro da coluna

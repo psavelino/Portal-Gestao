@@ -165,7 +165,7 @@ export async function createCard(params: {
   status?: CardStatus;
   createdBy: string | null;
 }): Promise<CardSummary> {
-  const status = params.status ?? "a_fazer";
+  const status = params.status ?? "backlog";
   const maxRows = await sql`
     select coalesce(max(sort_order), -1) + 1 as next
     from cards where board_id = ${params.boardId} and status = ${status}
