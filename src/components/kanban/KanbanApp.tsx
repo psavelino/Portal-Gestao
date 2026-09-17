@@ -36,10 +36,12 @@ function isOverdue(iso: string): boolean {
 export default function KanbanApp({
   canManage,
   isAdmin,
+  isClient,
   currentUserId,
 }: {
   canManage: boolean;
   isAdmin: boolean;
+  isClient: boolean;
   currentUserId: string;
 }) {
   const [boards, setBoards] = useState<BoardSummary[]>([]);
@@ -57,7 +59,12 @@ export default function KanbanApp({
   const [priorityFilter, setPriorityFilter] = useState<CardPriority | "">("");
   // Quando ligado, ignora a aba selecionada e traz os cards de TODOS os
   // quadros visíveis pro usuário, agrupados nas mesmas caixas de status.
+  // Usuário 'client' nunca vê essa opção (nem o checkbox, ver abaixo) — a
+  // checagem `&& !isClient` aqui é defesa em profundidade, pra garantir que
+  // mesmo que o estado seja forçado true por algum jeito, o comportamento
+  // efetivo do componente continua sendo "só o quadro liberado pra ele".
   const [showAllBoards, setShowAllBoards] = useState(false);
+  const effectiveShowAllBoards = showAllBoards && !isClient;
 
   const [quickAddFor, setQuickAddFor] = useState<CardStatus | null>(null);
   const [quickAddTitle, setQuickAddTitle] = useState("");
@@ -89,7 +96,7 @@ export default function KanbanApp({
   }, []);
 
   useEffect(() => {
-    if (showAllBoards) {
+    if (effectiveShowAllBoards) {
       if (boards.length === 0) {
         // eslint-disable-next-line react-hooks/set-state-in-effect
         setCards([]);
@@ -139,7 +146,7 @@ export default function KanbanApp({
     return () => {
       cancelled = true;
     };
-  }, [activeBoardId, showAllBoards, boards]);
+  }, [activeBoardId, effectiveShowAllBoards, boards]);
 
   const activeBoard = boards.find((b) => b.id === activeBoardId) ?? null;
 
@@ -190,7 +197,7 @@ export default function KanbanApp({
   }
 
   function moveCard(cardId: string, targetStatus: CardStatus, beforeCardId: string | null) {
-    if (showAllBoards) {
+    if (effectiveShowAllBoards) {
       void moveCardCrossBoard(cardId, targetStatus);
       return;
     }
@@ -310,7 +317,7 @@ export default function KanbanApp({
               setShowAllBoards(false);
             }}
             className={`shrink-0 flex items-center gap-2 px-4 py-2.5 text-sm font-semibold border-b-2 -mb-px transition-colors ${
-              !showAllBoards && b.id === activeBoardId
+              !effectiveShowAllBoards && b.id === activeBoardId
                 ? "border-verde text-ink"
                 : "border-transparent text-ink-secondary hover:text-ink"
             }`}
@@ -355,14 +362,16 @@ export default function KanbanApp({
             </option>
           ))}
         </select>
-        <label className="flex items-center gap-1.5 text-sm text-ink-secondary cursor-pointer">
-          <input
-            type="checkbox"
-            checked={showAllBoards}
-            onChange={(e) => setShowAllBoards(e.target.checked)}
-          />
-          Buscar em todos os quadros
-        </label>
+        {!isClient && (
+          <label className="flex items-center gap-1.5 text-sm text-ink-secondary cursor-pointer">
+            <input
+              type="checkbox"
+              checked={showAllBoards}
+              onChange={(e) => setShowAllBoards(e.target.checked)}
+            />
+            Buscar em todos os quadros
+          </label>
+        )}
         {(search || assigneeFilter || priorityFilter) && (
           <button
             type="button"
@@ -376,7 +385,7 @@ export default function KanbanApp({
             Limpar filtros
           </button>
         )}
-        {!showAllBoards && activeBoard?.description && (
+        {!effectiveShowAllBoards && activeBoard?.description && (
           <span className="text-xs text-ink-faint ml-auto">{activeBoard.description}</span>
         )}
       </div>
@@ -448,7 +457,7 @@ export default function KanbanApp({
                         </span>
                       </div>
 
-                      {showAllBoards && boardsById.get(card.boardId) && (
+                      {effectiveShowAllBoards && boardsById.get(card.boardId) && (
                         <div className="flex items-center gap-1.5 -mt-1">
                           <span
                             className="w-1.5 h-1.5 rounded-full shrink-0"
@@ -503,14 +512,14 @@ export default function KanbanApp({
                   ))}
                 </div>
 
-                {canManage && showAllBoards && (
+                {canManage && effectiveShowAllBoards && (
                   <span className="text-[11px] text-ink-faint px-1">
                     Desmarque &quot;todos os quadros&quot; pra criar um card
                   </span>
                 )}
 
                 {canManage &&
-                  !showAllBoards &&
+                  !effectiveShowAllBoards &&
                   (quickAddFor === status ? (
                     <form
                       onSubmit={(e) => {

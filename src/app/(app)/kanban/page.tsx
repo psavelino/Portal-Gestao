@@ -16,6 +16,7 @@ export default async function KanbanPage() {
     <KanbanApp
       canManage={canManage}
       isAdmin={session.user.role === "admin"}
+      isClient={session.user.role === "client"}
       currentUserId={session.user.id}
     />
   );
