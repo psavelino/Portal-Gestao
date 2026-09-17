@@ -1,3 +1,4 @@
+import { NextResponse } from "next/server";
 import { auth } from "@/auth";
 import { getUserModuleKeys } from "@/lib/users";
 import type { ModuleKey } from "@/lib/modules";
@@ -62,4 +63,28 @@ export async function canOpenBoard(boardId: string): Promise<boolean> {
     return userHasBoardAccess(boardId, session.user.id);
   }
   return false;
+}
+
+// Pode editar o Forecast (lançar/alterar horas, gerenciar equipe, clientes
+// e projetos). Decisão do Paulo (18/09): só admin edita — member com o
+// módulo forecast liberado passa a ter acesso de LEITURA (visualiza a
+// grade inteira, sem poder mexer). Usada na página pra controlar a UI e
+// nas rotas de API abaixo pra bloquear a escrita de verdade (não só
+// esconder botão).
+export async function canEditForecast(): Promise<boolean> {
+  const session = await auth();
+  return session?.user?.role === "admin";
+}
+
+// Mesma regra que canEditForecast, mas pronta pra usar em rota de API:
+// devolve uma resposta 403 se não for admin, ou null se pode seguir.
+export async function requireForecastAdmin(): Promise<NextResponse | null> {
+  const session = await auth();
+  if (session?.user?.role !== "admin") {
+    return NextResponse.json(
+      { error: "Apenas administradores podem editar o forecast." },
+      { status: 403 }
+    );
+  }
+  return null;
 }

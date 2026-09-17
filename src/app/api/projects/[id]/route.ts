@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { z } from "zod";
 import { sql } from "@/lib/db";
+import { requireForecastAdmin } from "@/lib/access";
 
 const updateSchema = z.object({
   name: z.string().trim().min(2).optional(),
@@ -18,6 +19,9 @@ export async function PATCH(
   request: Request,
   ctx: { params: Promise<{ id: string }> }
 ) {
+  const denied = await requireForecastAdmin();
+  if (denied) return denied;
+
   const { id } = await ctx.params;
 
   let body: unknown;

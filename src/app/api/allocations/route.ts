@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { z } from "zod";
 import { sql } from "@/lib/db";
+import { requireForecastAdmin } from "@/lib/access";
 
 const dateSchema = z.string().regex(/^\d{4}-\d{2}-\d{2}$/, "Data inválida.");
 
@@ -41,6 +42,9 @@ const putSchema = z.object({
 });
 
 export async function PUT(request: Request) {
+  const denied = await requireForecastAdmin();
+  if (denied) return denied;
+
   let body: unknown;
   try {
     body = await request.json();

@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { z } from "zod";
 import { sql } from "@/lib/db";
+import { requireForecastAdmin } from "@/lib/access";
 
 export async function GET() {
   const rows = await sql`
@@ -20,6 +21,9 @@ const createSchema = z.object({
 });
 
 export async function POST(request: Request) {
+  const denied = await requireForecastAdmin();
+  if (denied) return denied;
+
   let body: unknown;
   try {
     body = await request.json();
